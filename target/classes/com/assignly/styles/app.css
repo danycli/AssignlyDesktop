@@ -1,0 +1,421 @@
+/* ===================================================================
+   Assignly Desktop – Cyprus × Sand Design System
+   Primary:  #004643  (Cyprus – dark teal)
+   Surface:  #F0EDEC  (Sand – warm off-white)
+   =================================================================== */
+
+.root {
+    -fx-font-family: "Segoe UI", system-ui, sans-serif;
+    -fx-font-size: 13px;
+    -fx-base: #F0EDEC;
+    -fx-background-color: #F0EDEC;
+}
+
+.app-root {
+    -fx-background-color: #F0EDEC;
+}
+
+/* ---------- Typography ---------- */
+.title-text {
+    -fx-font-size: 22px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #004643;
+}
+
+.subtitle-text {
+    -fx-font-size: 15px;
+    -fx-font-weight: 600;
+    -fx-text-fill: #004643;
+}
+
+.heading-label {
+    -fx-font-size: 20px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #1a1a1a;
+}
+
+.label {
+    -fx-text-fill: #3a3a3a;
+}
+
+.muted-text {
+    -fx-text-fill: #888888;
+    -fx-font-size: 12px;
+}
+
+/* ---------- Sidebar ---------- */
+.sidebar {
+    -fx-background-color: #004643;
+}
+
+.sidebar-brand {
+    -fx-font-size: 20px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #F0EDEC;
+}
+
+.sidebar-brand-sub {
+    -fx-font-size: 10px;
+    -fx-text-fill: rgba(240,237,236,0.5);
+}
+
+.sidebar-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: rgba(240,237,236,0.7);
+    -fx-font-size: 13px;
+    -fx-font-weight: 500;
+    -fx-padding: 10 16;
+    -fx-background-radius: 8;
+    -fx-cursor: hand;
+    -fx-alignment: CENTER-LEFT;
+    -fx-max-width: infinity;
+}
+
+.sidebar-button:hover {
+    -fx-background-color: rgba(240,237,236,0.08);
+    -fx-text-fill: #F0EDEC;
+}
+
+.sidebar-button-active {
+    -fx-background-color: rgba(240,237,236,0.12);
+    -fx-text-fill: #F0EDEC;
+    -fx-font-weight: 700;
+}
+
+.sidebar-logout {
+    -fx-background-color: transparent;
+    -fx-text-fill: rgba(240,237,236,0.5);
+    -fx-font-size: 12px;
+    -fx-padding: 10 16;
+    -fx-background-radius: 8;
+    -fx-cursor: hand;
+    -fx-alignment: CENTER-LEFT;
+    -fx-max-width: infinity;
+}
+
+.sidebar-logout:hover {
+    -fx-background-color: rgba(255,100,100,0.15);
+    -fx-text-fill: #ff6b6b;
+}
+
+/* ---------- Cards ---------- */
+.card {
+    -fx-background-color: white;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-color: #e0dbd9;
+    -fx-border-width: 1;
+}
+
+.card-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #004643;
+}
+
+.card-value {
+    -fx-font-size: 28px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #004643;
+}
+
+.card-description {
+    -fx-font-size: 11px;
+    -fx-text-fill: #999999;
+}
+
+/* ---------- Stat Card ---------- */
+.stat-card {
+    -fx-background-color: white;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-color: #e0dbd9;
+    -fx-border-width: 1;
+    -fx-padding: 18;
+}
+
+/* ---------- Buttons ---------- */
+.button {
+    -fx-background-radius: 8;
+    -fx-cursor: hand;
+    -fx-font-weight: 500;
+    -fx-padding: 8 16;
+}
+
+.accent-button {
+    -fx-background-color: #004643;
+    -fx-text-fill: #F0EDEC;
+    -fx-font-weight: 600;
+    -fx-background-radius: 8;
+}
+
+.accent-button:hover {
+    -fx-background-color: #005a56;
+}
+
+.accent-button:pressed {
+    -fx-background-color: #003835;
+}
+
+.outline-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: #004643;
+    -fx-border-color: #004643;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-cursor: hand;
+}
+
+.outline-button:hover {
+    -fx-background-color: rgba(0,70,67,0.05);
+}
+
+.danger-button {
+    -fx-background-color: #d94452;
+    -fx-text-fill: white;
+    -fx-background-radius: 8;
+}
+
+.danger-button:hover {
+    -fx-background-color: #c43a47;
+}
+
+.ghost-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: #666666;
+    -fx-cursor: hand;
+}
+
+.ghost-button:hover {
+    -fx-text-fill: #004643;
+}
+
+/* ---------- Text Fields ---------- */
+.text-field, .password-field {
+    -fx-background-color: white;
+    -fx-text-fill: #1a1a1a;
+    -fx-prompt-text-fill: #aaaaaa;
+    -fx-border-color: #d5d0ce;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-padding: 10 14;
+    -fx-font-size: 13px;
+}
+
+.text-field:focused, .password-field:focused {
+    -fx-border-color: #004643;
+}
+
+/* ---------- Check Box ---------- */
+.check-box {
+    -fx-text-fill: #666666;
+}
+
+.check-box .box {
+    -fx-background-color: white;
+    -fx-border-color: #d5d0ce;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.check-box:selected .box {
+    -fx-background-color: #004643;
+    -fx-border-color: #004643;
+}
+
+.check-box:selected .mark {
+    -fx-background-color: white;
+}
+
+/* ---------- Scroll Pane ---------- */
+.scroll-pane {
+    -fx-background-color: transparent;
+}
+
+.scroll-pane > .viewport {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: #d5d0ce;
+    -fx-background-radius: 4;
+}
+
+.scroll-bar .thumb:hover {
+    -fx-background-color: #b5b0ae;
+}
+
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.scroll-bar .increment-arrow,
+.scroll-bar .decrement-arrow {
+    -fx-shape: "";
+    -fx-padding: 0;
+}
+
+/* ---------- ListView ---------- */
+.list-view {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.list-view .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: #3a3a3a;
+    -fx-padding: 8 12;
+    -fx-border-color: #ebe7e5;
+    -fx-border-width: 0 0 1 0;
+}
+
+.list-view .list-cell:filled:hover {
+    -fx-background-color: rgba(0,70,67,0.04);
+}
+
+.list-view .list-cell:filled:selected {
+    -fx-background-color: rgba(0,70,67,0.08);
+    -fx-text-fill: #004643;
+}
+
+.list-view .list-cell:empty {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.list-view .placeholder .label {
+    -fx-text-fill: #aaaaaa;
+}
+
+/* ---------- Slider ---------- */
+.slider .track {
+    -fx-background-color: #d5d0ce;
+    -fx-background-radius: 4;
+}
+
+.slider .thumb {
+    -fx-background-color: #004643;
+    -fx-background-radius: 8;
+}
+
+/* ---------- Progress ---------- */
+.progress-bar .track {
+    -fx-background-color: #e0dbd9;
+    -fx-background-radius: 4;
+}
+
+.progress-bar .bar {
+    -fx-background-color: #004643;
+    -fx-background-radius: 4;
+}
+
+/* ---------- Separator ---------- */
+.separator .line {
+    -fx-border-color: rgba(240,237,236,0.15);
+    -fx-border-width: 1 0 0 0;
+}
+
+/* ---------- Tooltip ---------- */
+.tooltip {
+    -fx-background-color: #004643;
+    -fx-text-fill: #F0EDEC;
+    -fx-background-radius: 6;
+    -fx-padding: 6 10;
+    -fx-font-size: 12px;
+}
+
+/* ---------- Login Screen ---------- */
+.login-card {
+    -fx-background-color: white;
+    -fx-background-radius: 16;
+    -fx-border-radius: 16;
+    -fx-border-color: #e0dbd9;
+    -fx-border-width: 1;
+}
+
+.login-title {
+    -fx-font-size: 28px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #004643;
+}
+
+.login-subtitle {
+    -fx-font-size: 12px;
+    -fx-text-fill: #999999;
+}
+
+/* ---------- Welcome Card ---------- */
+.welcome-card {
+    -fx-background-color: white;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-color: #e0dbd9;
+    -fx-border-width: 1;
+    -fx-padding: 20;
+}
+
+.welcome-name {
+    -fx-font-size: 20px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #1a1a1a;
+}
+
+.welcome-reg {
+    -fx-font-size: 12px;
+    -fx-text-fill: #004643;
+    -fx-font-weight: 500;
+}
+
+.welcome-message {
+    -fx-font-size: 13px;
+    -fx-text-fill: #888888;
+    -fx-wrap-text: true;
+}
+
+/* ---------- Loading ---------- */
+.loading-overlay {
+    -fx-background-color: rgba(240,237,236,0.92);
+}
+
+.loading-label {
+    -fx-font-size: 14px;
+    -fx-font-weight: 600;
+    -fx-text-fill: #004643;
+}
+
+/* ---------- Content Area ---------- */
+.content-area {
+    -fx-background-color: #F0EDEC;
+}
+
+/* ---------- Top Bar ---------- */
+.top-bar {
+    -fx-background-color: white;
+    -fx-border-color: #e0dbd9;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 10 20;
+}
+
+.top-bar-title {
+    -fx-font-size: 16px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #004643;
+}
+
+/* ---------- Utility ---------- */
+.accent-text {
+    -fx-text-fill: #004643;
+}
+
+.error-text {
+    -fx-text-fill: #d94452;
+    -fx-font-size: 12px;
+}
