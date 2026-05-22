@@ -1,10 +1,12 @@
 package com.assignly.view;
 
 import com.assignly.util.AppContext;
+import com.assignly.service.PortalRepository;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
@@ -13,12 +15,20 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
+import javafx.stage.DirectoryChooser;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 
 /**
  * Clean multi-tab view for all the Course Portal sections, mirroring the CoursesTabView design.
@@ -86,9 +96,9 @@ public class CoursePortalTabView {
         switch (tabKey) {
             case "portal_mcq" -> loadMcqData();
             case "portal_subjective" -> loadSubjectiveData();
-            case "portal_contents" -> contentPane.getChildren().add(new WebPortalTabView(context, "CoursePortalContentsSummary.aspx", "Course Contents").getRoot());
-            case "portal_assign_summ" -> contentPane.getChildren().add(new WebPortalTabView(context, "CoursePortal.aspx", "Assignments Summary").getRoot());
-            case "portal_pending" -> contentPane.getChildren().add(new WebPortalTabView(context, "CoursePortalPendingAssignments.aspx", "Pending Assignments").getRoot());
+            case "portal_contents" -> loadCourseContentsData();
+            case "portal_assign_summ" -> loadAssignmentsData();
+            case "portal_pending" -> loadPendingAssignmentsData();
         }
     }
 
@@ -130,35 +140,46 @@ public class CoursePortalTabView {
     private void loadMcqData() {
         showLoading("Loading MCQ Tests...");
         new Thread(() -> {
-            String html = context.portalRepository().fetchPageHtml("CTS/CTSdashboard.aspx");
-            if (html == null) {
+            try {
+                String html = context.portalRepository().fetchPageHtml("CTS/CTSdashboard.aspx");
+                if (html == null) {
+                    Platform.runLater(() -> {
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Unable to load MCQ Tests",
+                            "Failed to connect to the portal database. Please check your internet connection and try again."
+                        ));
+                    });
+                    return;
+                }
+
+                try {
+                    java.nio.file.Files.writeString(java.nio.file.Paths.get("cts_dashboard_raw.html"), html);
+                } catch (Exception ignored) {}
+
+                Platform.runLater(() -> {
+                    contentPane.getChildren().clear();
+                    try {
+                        contentPane.getChildren().add(buildMcqView(html));
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Parsing Error",
+                            "Failed to read the MCQ table layout cleanly. The portal database may be undergoing updates."
+                        ));
+                    }
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
-                        "Unable to load MCQ Tests",
-                        "Failed to connect to the portal database. Please check your internet connection and try again."
+                        "Loading Error",
+                        "An unexpected error occurred while loading MCQ tests: " + e.getMessage()
                     ));
                 });
-                return;
             }
-
-            try {
-                java.nio.file.Files.writeString(java.nio.file.Paths.get("cts_dashboard_raw.html"), html);
-            } catch (Exception ignored) {}
-
-            Platform.runLater(() -> {
-                contentPane.getChildren().clear();
-                try {
-                    contentPane.getChildren().add(buildMcqView(html));
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                    contentPane.getChildren().clear();
-                    contentPane.getChildren().add(buildErrorState(
-                        "Parsing Error",
-                        "Failed to read the MCQ table layout cleanly. The portal database may be undergoing updates."
-                    ));
-                }
-            });
         }).start();
     }
 
@@ -183,10 +204,7 @@ public class CoursePortalTabView {
         subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;-fx-padding:0 0 4 0;");
         content.getChildren().add(subHeading);
 
-        Element table = doc.getElementById("DataContent_gvCTSdashboard");
-        if (table == null) {
-            table = doc.select("table.Grid").first();
-        }
+        Element table = findMainGridTable(doc, "DataContent_gvCTSdashboard");
 
         if (table != null) {
             Elements rows = table.select("tr");
@@ -306,40 +324,51 @@ public class CoursePortalTabView {
         showLoading("Loading MCQ Test details...");
 
         new Thread(() -> {
-            String html = context.portalRepository().fetchPageHtml(pageUrl);
-            if (html == null) {
+            try {
+                String html = context.portalRepository().fetchPageHtml(pageUrl);
+                if (html == null) {
+                    Platform.runLater(() -> {
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Connection Error",
+                            "Failed to load MCQ Test details. Please check your internet connection."
+                        ));
+                    });
+                    return;
+                }
+
+                try {
+                    java.nio.file.Files.writeString(java.nio.file.Paths.get("cts_paper_raw.html"), html);
+                } catch (Exception ignored) {}
+
+                Document doc = Jsoup.parse(html);
+                boolean isCompleted = doc.select("#DataContent_dvStudentOnlineTestResult").first() != null
+                        || html.contains("online test is completed")
+                        || doc.getElementById("DataContent_lblObtainMarks") != null;
+
+                Platform.runLater(() -> {
+                    contentPane.getChildren().clear();
+                    if (isCompleted) {
+                        try {
+                            contentPane.getChildren().add(buildNativeResultView(doc, pageUrl));
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                            renderWebViewPaper(pageUrl, title);
+                        }
+                    } else {
+                        renderWebViewPaper(pageUrl, title);
+                    }
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
-                        "Connection Error",
-                        "Failed to load MCQ Test details. Please check your internet connection."
+                        "Loading Error",
+                        "An unexpected error occurred while loading MCQ details: " + e.getMessage()
                     ));
                 });
-                return;
             }
-
-            try {
-                java.nio.file.Files.writeString(java.nio.file.Paths.get("cts_paper_raw.html"), html);
-            } catch (Exception ignored) {}
-
-            Document doc = Jsoup.parse(html);
-            boolean isCompleted = doc.select("#DataContent_dvStudentOnlineTestResult").first() != null
-                    || html.contains("online test is completed")
-                    || doc.getElementById("DataContent_lblObtainMarks") != null;
-
-            Platform.runLater(() -> {
-                contentPane.getChildren().clear();
-                if (isCompleted) {
-                    try {
-                        contentPane.getChildren().add(buildNativeResultView(doc, pageUrl));
-                    } catch (Exception ex) {
-                        ex.printStackTrace();
-                        renderWebViewPaper(pageUrl, title);
-                    }
-                } else {
-                    renderWebViewPaper(pageUrl, title);
-                }
-            });
         }).start();
     }
 
@@ -503,35 +532,46 @@ public class CoursePortalTabView {
     private void loadSubjectiveData() {
         showLoading("Loading Subjective Tests...");
         new Thread(() -> {
-            String html = context.portalRepository().fetchPageHtml("CoursePortal.aspx?isTest=1");
-            if (html == null) {
+            try {
+                String html = context.portalRepository().fetchPageHtml("CoursePortal.aspx?isTest=1");
+                if (html == null) {
+                    Platform.runLater(() -> {
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Unable to load Subjective Tests", 
+                            "Failed to connect to the portal database. Please check your internet connection and try again."
+                        ));
+                    });
+                    return;
+                }
+
+                try {
+                    java.nio.file.Files.writeString(java.nio.file.Paths.get("cts_subjective_raw.html"), html);
+                } catch (Exception ignored) {}
+
+                Platform.runLater(() -> {
+                    contentPane.getChildren().clear();
+                    try {
+                        contentPane.getChildren().add(buildSubjectiveView(html));
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Parsing Error", 
+                            "Failed to read the Subjective Tests table. The portal layout might have changed."
+                        ));
+                    }
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
-                        "Unable to load Subjective Tests", 
-                        "Failed to connect to the portal database. Please check your internet connection and try again."
+                        "Loading Error",
+                        "An unexpected error occurred while loading Subjective tests: " + e.getMessage()
                     ));
                 });
-                return;
             }
-
-            try {
-                java.nio.file.Files.writeString(java.nio.file.Paths.get("cts_subjective_raw.html"), html);
-            } catch (Exception ignored) {}
-
-            Platform.runLater(() -> {
-                contentPane.getChildren().clear();
-                try {
-                    contentPane.getChildren().add(buildSubjectiveView(html));
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                    contentPane.getChildren().clear();
-                    contentPane.getChildren().add(buildErrorState(
-                        "Parsing Error", 
-                        "Failed to read the Subjective Tests table. The portal layout might have changed."
-                    ));
-                }
-            });
         }).start();
     }
 
@@ -556,10 +596,7 @@ public class CoursePortalTabView {
         subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;-fx-padding:0 0 4 0;");
         content.getChildren().add(subHeading);
 
-        Element table = doc.getElementById("DataContent_gvPortalSummary");
-        if (table == null) {
-            table = doc.select("table.Grid").first();
-        }
+        Element table = findMainGridTable(doc, "DataContent_gvPortalSummary");
 
         if (table != null) {
             String tableText = table.text().trim();
@@ -698,21 +735,1402 @@ public class CoursePortalTabView {
         showLoading("Loading Subjective Test details...");
 
         new Thread(() -> {
-            String html = context.portalRepository().fetchPageHtml(pageUrl);
-            if (html == null) {
+            try {
+                String html = context.portalRepository().fetchPageHtml(pageUrl);
+                if (html == null) {
+                    Platform.runLater(() -> {
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Connection Error",
+                            "Failed to load Subjective Test details. Please check your internet connection."
+                        ));
+                    });
+                    return;
+                }
+
+                Platform.runLater(() -> renderWebViewPaper(pageUrl, title));
+            } catch (Exception e) {
+                e.printStackTrace();
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
-                        "Connection Error",
-                        "Failed to load Subjective Test details. Please check your internet connection."
+                        "Loading Error",
+                        "An unexpected error occurred while loading Subjective details: " + e.getMessage()
                     ));
                 });
-                return;
             }
-
-            Platform.runLater(() -> renderWebViewPaper(pageUrl, title));
         }).start();
     }
 
+    private void loadAssignmentsData() {
+        showLoading("Loading Assignments Summary...");
+        new Thread(() -> {
+            try {
+                String html = context.portalRepository().fetchPageHtml("CoursePortal.aspx");
+                if (html == null) {
+                    Platform.runLater(() -> {
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Unable to load Assignments Summary",
+                            "Failed to connect to the portal database. Please check your internet connection and try again."
+                        ));
+                    });
+                    return;
+                }
+
+                try {
+                    java.nio.file.Files.writeString(java.nio.file.Paths.get("cts_assignments_raw.html"), html);
+                } catch (Exception ignored) {}
+
+                Platform.runLater(() -> {
+                    contentPane.getChildren().clear();
+                    try {
+                        contentPane.getChildren().add(buildAssignmentsView(html));
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Parsing Error",
+                            "Failed to read the Assignments Summary table cleanly."
+                        ));
+                    }
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
+                Platform.runLater(() -> {
+                    contentPane.getChildren().clear();
+                    contentPane.getChildren().add(buildErrorState(
+                        "Loading Error",
+                        "An unexpected error occurred while loading assignments: " + e.getMessage()
+                    ));
+                });
+            }
+        }).start();
+    }
+
+    private ScrollPane buildAssignmentsView(String html) {
+        ScrollPane sp = new ScrollPane();
+        sp.setFitToWidth(true);
+        sp.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
+
+        VBox content = new VBox(16);
+        content.setPadding(new Insets(16, 28, 24, 28));
+        content.setFillWidth(true);
+
+        Document doc = Jsoup.parse(html);
+        
+        String headingText = "Course Portal Summary";
+        Element h3 = doc.select("h3").first();
+        if (h3 != null && !h3.text().trim().isEmpty()) {
+            headingText = h3.text().trim();
+        }
+
+        Label subHeading = new Label(headingText);
+        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;-fx-padding:0 0 4 0;");
+        content.getChildren().add(subHeading);
+
+        Element table = findMainGridTable(doc, "DataContent_gvPortalSummary");
+
+        if (table != null) {
+            String tableText = table.text().trim();
+            if (tableText.contains("No Assignment Found")) {
+                renderEmptyAssignmentsState(content);
+            } else {
+                Elements rows = table.select("tr");
+                if (rows.size() > 1) {
+                    VBox tableCard = buildNativeAssignmentsTable(rows);
+                    content.getChildren().add(tableCard);
+                } else {
+                    renderEmptyAssignmentsState(content);
+                }
+            }
+        } else {
+            renderEmptyAssignmentsState(content);
+        }
+
+        sp.setContent(content);
+        return sp;
+    }
+
+    private void renderEmptyAssignmentsState(VBox content) {
+        VBox emptyCard = new VBox(12);
+        emptyCard.setAlignment(Pos.CENTER);
+        emptyCard.setPadding(new Insets(32, 24, 32, 24));
+        emptyCard.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+
+        Label icon = new Label("📋");
+        icon.setStyle("-fx-font-size:28px;");
+
+        Label label = new Label("No Assignments Found");
+        label.setStyle("-fx-text-fill:#475569;-fx-font-size:13px;-fx-font-weight:bold;");
+
+        Label desc = new Label("There are currently no active or closed assignments listed in your course portal.");
+        desc.setStyle("-fx-text-fill:#64748b;-fx-font-size:11px;-fx-text-alignment:center;");
+        desc.setWrapText(true);
+
+        emptyCard.getChildren().addAll(icon, label, desc);
+        content.getChildren().add(emptyCard);
+    }
+
+    private VBox buildNativeAssignmentsTable(Elements rows) {
+        VBox card = new VBox(0);
+        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        
+        Element headerRow = rows.first();
+        if (headerRow == null) return card;
+
+        Elements headerCells = headerRow.select("th, td");
+        List<String> headers = new ArrayList<>();
+        for (Element hc : headerCells) {
+            headers.add(hc.text().trim());
+        }
+
+        HBox headerBox = new HBox(0);
+        headerBox.setStyle("-fx-background-color:#f8fafc;-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+        for (int i = 0; i < headers.size(); i++) {
+            Label hl = new Label(headers.get(i));
+            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+            double w = assignmentsColW(headers.get(i), i, headers.size());
+            hl.setMinWidth(w);
+            hl.setMaxWidth(w);
+            headerBox.getChildren().add(hl);
+        }
+        card.getChildren().add(headerBox);
+
+        for (int r = 1; r < rows.size(); r++) {
+            Element row = rows.get(r);
+            Elements cells = row.select("td");
+            if (cells.isEmpty()) continue;
+
+            HBox dataRow = new HBox(0);
+            dataRow.setAlignment(Pos.CENTER_LEFT);
+            String bg = (r % 2 == 0) ? "#f8fafc" : "white";
+            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+
+            String courseTitle = "";
+            String assignmentTitle = "";
+            boolean isRowClosed = false;
+
+            // Scan columns for status first to determine closed state
+            for (int c = 0; c < cells.size(); c++) {
+                if (c >= headers.size()) break;
+                String colHeader = headers.get(c).toLowerCase();
+                if (colHeader.contains("status")) {
+                    String statusText = cells.get(c).text().toLowerCase();
+                    if (statusText.contains("closed")) {
+                        isRowClosed = true;
+                    }
+                }
+            }
+
+            for (int c = 0; c < cells.size(); c++) {
+                if (c >= headers.size()) break;
+
+                Element cell = cells.get(c);
+                String txt = cell.text().trim().replaceAll("\\s+", " ");
+                double w = assignmentsColW(headers.get(c), c, headers.size());
+                Node cellNode;
+
+                if (c == 1) courseTitle = txt;
+                if (c == 2) assignmentTitle = txt;
+
+                String colHeader = headers.get(c).toLowerCase();
+
+                if (colHeader.contains("submission")) {
+                    Label badge = new Label(txt);
+                    boolean isSubmitted = txt.toLowerCase().contains("submitted") && !txt.toLowerCase().contains("not");
+                    if (isSubmitted) {
+                        badge.setStyle("-fx-background-color:#def7ec;-fx-text-fill:#03543f;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                    } else {
+                        badge.setStyle("-fx-background-color:#fde8e8;-fx-text-fill:#9b1c1c;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                    }
+                    HBox wrapper = new HBox(badge);
+                    wrapper.setAlignment(Pos.CENTER_LEFT);
+                    wrapper.setPadding(new Insets(0, 12, 0, 12));
+                    wrapper.setMinWidth(w);
+                    wrapper.setMaxWidth(w);
+                    cellNode = wrapper;
+                } else if (colHeader.contains("status")) {
+                    Label badge = new Label(txt);
+                    if (isRowClosed) {
+                        badge.setStyle("-fx-background-color:#f3f4f6;-fx-text-fill:#4b5563;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                    } else {
+                        badge.setStyle("-fx-background-color:#eff6ff;-fx-text-fill:#1e40af;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                    }
+                    HBox wrapper = new HBox(badge);
+                    wrapper.setAlignment(Pos.CENTER_LEFT);
+                    wrapper.setPadding(new Insets(0, 12, 0, 12));
+                    wrapper.setMinWidth(w);
+                    wrapper.setMaxWidth(w);
+                    cellNode = wrapper;
+                } else if (colHeader.contains("download") || colHeader.contains("dowload")) {
+                    String href = context.portalRepository().extractAssignmentDownloadLink(cell);
+                    Button dlBtn = new Button("Download");
+                    dlBtn.setCursor(javafx.scene.Cursor.HAND);
+                    dlBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
+                    
+                    final String finalCourse = courseTitle;
+                    final String finalAssign = assignmentTitle;
+
+                    if (href == null || href.isBlank()) {
+                        dlBtn.setOnAction(e -> showWarningDialog("Download Assignment", "No assignment files have been uploaded by the teacher."));
+                    } else {
+                        dlBtn.setOnAction(e -> triggerAssignmentDownload(href, finalAssign, finalCourse, dlBtn));
+                    }
+
+                    HBox wrapper = new HBox(dlBtn);
+                    wrapper.setAlignment(Pos.CENTER_LEFT);
+                    wrapper.setPadding(new Insets(0, 12, 0, 12));
+                    wrapper.setMinWidth(w);
+                    wrapper.setMaxWidth(w);
+                    cellNode = wrapper;
+                } else if (colHeader.contains("submit")) {
+                    if (!isRowClosed) {
+                        String submitUrl = context.portalRepository().extractAssignmentSubmitLink(cell, "CoursePortal.aspx");
+                        if (!submitUrl.isEmpty()) {
+                            Button subBtn = new Button("Change File");
+                            subBtn.setCursor(javafx.scene.Cursor.HAND);
+                            subBtn.setStyle("-fx-background-color:#23A9BD;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
+                            subBtn.setOnAction(e -> triggerAssignmentUpload(submitUrl, subBtn));
+
+                            HBox wrapper = new HBox(subBtn);
+                            wrapper.setAlignment(Pos.CENTER_LEFT);
+                            wrapper.setPadding(new Insets(0, 12, 0, 12));
+                            wrapper.setMinWidth(w);
+                            wrapper.setMaxWidth(w);
+                            cellNode = wrapper;
+                        } else {
+                            Label cl = new Label(txt.isEmpty() ? "-" : txt);
+                            cl.setStyle("-fx-font-size:12px;-fx-text-fill:#64748b;-fx-padding:0 12;");
+                            cl.setMinWidth(w);
+                            cl.setMaxWidth(w);
+                            cellNode = cl;
+                        }
+                    } else {
+                        Label cl = new Label(txt);
+                        if (txt.toLowerCase().contains("closed")) {
+                            cl.setStyle("-fx-font-size:11px;-fx-text-fill:#b91c1c;-fx-font-weight:bold;-fx-padding:0 12;");
+                        } else {
+                            cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                        }
+                        cl.setMinWidth(w);
+                        cl.setMaxWidth(w);
+                        cellNode = cl;
+                    }
+                } else {
+                    Label cl = new Label(txt);
+                    cl.setWrapText(true);
+                    cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                    cl.setMinWidth(w);
+                    cl.setMaxWidth(w);
+                    cellNode = cl;
+                }
+
+                dataRow.getChildren().add(cellNode);
+            }
+            card.getChildren().add(dataRow);
+        }
+
+        return card;
+    }
+
+    private void triggerAssignmentDownload(String href, String assignmentTitle, String courseTitle, Button btn) {
+        if (btn != null) {
+            Platform.runLater(() -> btn.setDisable(true));
+        }
+
+        new Thread(() -> {
+            try {
+                PortalRepository.DownloadResult result = context.portalRepository().downloadAssignment(href);
+
+                Platform.runLater(() -> {
+                    if (btn != null) btn.setDisable(false);
+
+                    if (result instanceof PortalRepository.DownloadResult.Success success) {
+                        String extension = "";
+                        String fileName = success.fileName();
+                        if (fileName != null && !fileName.isBlank()) {
+                            int dotIdx = fileName.lastIndexOf('.');
+                            if (dotIdx > 0) {
+                                extension = fileName.substring(dotIdx);
+                            }
+                        }
+                        if (extension.isEmpty() && success.mimeType() != null) {
+                            String extFromMime = context.portalRepository().getExtensionFromMimeType(success.mimeType());
+                            if (extFromMime != null && !extFromMime.isEmpty() && !extFromMime.equals("bin")) {
+                                extension = "." + extFromMime;
+                            }
+                        }
+                        if (extension.isEmpty()) {
+                            extension = ".pdf";
+                        }
+
+                        final String finalFilename = getCustomFilename(assignmentTitle, courseTitle, extension);
+                        final byte[] fileBytes = success.bytes();
+
+                        FileChooser fileChooser = new FileChooser();
+                        fileChooser.setTitle("Save Assignment Document");
+                        fileChooser.setInitialFileName(finalFilename);
+
+                        if (!extension.isEmpty()) {
+                            fileChooser.getExtensionFilters().add(
+                                new FileChooser.ExtensionFilter(extension.toUpperCase().substring(1) + " Files", "*" + extension)
+                            );
+                        }
+                        fileChooser.getExtensionFilters().add(
+                            new FileChooser.ExtensionFilter("All Files", "*.*")
+                        );
+
+                        File file = fileChooser.showSaveDialog(context.stage());
+                        if (file != null) {
+                            new Thread(() -> {
+                                try {
+                                    java.nio.file.Files.write(file.toPath(), fileBytes);
+                                    Platform.runLater(() -> showSuccessDialog("Download Complete", "File saved successfully: " + file.getName()));
+                                } catch (Exception ex) {
+                                    ex.printStackTrace();
+                                    Platform.runLater(() -> showErrorDialog("Download Failed", "Error saving file: " + ex.getMessage()));
+                                }
+                            }).start();
+                        }
+                    } else if (result instanceof PortalRepository.DownloadResult.NetworkError) {
+                        showErrorDialog("Download Error", "Network connection failed. Please check your internet connection.");
+                    } else if (result instanceof PortalRepository.DownloadResult.Rejected rejected) {
+                        showErrorDialog("Download Rejected", rejected.reason());
+                    } else if (result instanceof PortalRepository.DownloadResult.Error err) {
+                        showErrorDialog("Download Error", err.message());
+                    }
+                });
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                Platform.runLater(() -> {
+                    if (btn != null) btn.setDisable(false);
+                    showErrorDialog("Download Error", "An unexpected error occurred: " + ex.getMessage());
+                });
+            }
+        }).start();
+    }
+
+    private void triggerAssignmentUpload(String submitUrl, Button btn) {
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle("Select Assignment File to Upload");
+        fileChooser.getExtensionFilters().addAll(
+            new FileChooser.ExtensionFilter("All Files", "*.*"),
+            new FileChooser.ExtensionFilter("PDF Files", "*.pdf"),
+            new FileChooser.ExtensionFilter("ZIP Files", "*.zip"),
+            new FileChooser.ExtensionFilter("Word Documents", "*.doc", "*.docx")
+        );
+        
+        File selectedFile = fileChooser.showOpenDialog(context.stage());
+        if (selectedFile == null) {
+            return;
+        }
+
+        if (btn != null) {
+            Platform.runLater(() -> btn.setDisable(true));
+        }
+        showLoading("Uploading assignment file...");
+
+        new Thread(() -> {
+            try {
+                PortalRepository.UploadResult result = context.portalRepository().uploadAssignment(submitUrl, selectedFile);
+
+                Platform.runLater(() -> {
+                    if (btn != null) btn.setDisable(false);
+                    
+                    if (result instanceof PortalRepository.UploadResult.Success) {
+                        showSuccessDialog("Upload Complete", "Assignment uploaded successfully!");
+                        loadAssignmentsData();
+                    } else {
+                        loadAssignmentsData();
+                        if (result instanceof PortalRepository.UploadResult.NetworkError) {
+                            showErrorDialog("Upload Failed", "Network connection error. Please try again.");
+                        } else if (result instanceof PortalRepository.UploadResult.Timeout) {
+                            showErrorDialog("Upload Failed", "Request timed out. The server might be slow or file might be too large.");
+                        } else if (result instanceof PortalRepository.UploadResult.Rejected rejected) {
+                            showErrorDialog("Upload Rejected", rejected.reason());
+                        } else if (result instanceof PortalRepository.UploadResult.Error err) {
+                            showErrorDialog("Upload Failed", err.message());
+                        }
+                    }
+                });
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                Platform.runLater(() -> {
+                    if (btn != null) btn.setDisable(false);
+                    loadAssignmentsData();
+                    showErrorDialog("Upload Error", "An unexpected error occurred: " + ex.getMessage());
+                });
+            }
+        }).start();
+    }
+
+    private void showWarningDialog(String title, String content) {
+        Alert alert = new Alert(Alert.AlertType.WARNING);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(content);
+        alert.showAndWait();
+    }
+
+    private double assignmentsColW(String h, int i, int total) {
+        String l = h.toLowerCase();
+        if (l.contains("#")) return 40;
+        if (l.contains("course")) return 180;
+        if (l.contains("title")) return 150;
+        if (l.contains("start")) return 110;
+        if (l.contains("deadline") || l.contains("due")) return 140;
+        if (l.contains("submission")) return 110;
+        if (l.contains("status")) return 80;
+        if (l.contains("download") || l.contains("dowload")) return 100;
+        if (l.contains("submit")) return 90;
+        return 100;
+    }
+
+    // ==================== COURSE CONTENTS ====================
+    private void loadCourseContentsData() {
+        showLoading("Loading Course Contents...");
+        new Thread(() -> {
+            try {
+                String html = context.portalRepository().fetchPageHtml("CoursePortalContentsSummary.aspx");
+                if (html == null) {
+                    Platform.runLater(() -> {
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Unable to load Course Contents",
+                            "Failed to connect to the portal. Please check your internet connection and try again."
+                        ));
+                    });
+                    return;
+                }
+
+                try {
+                    java.nio.file.Files.writeString(java.nio.file.Paths.get("course_contents_raw.html"), html);
+                } catch (Exception ignored) {}
+
+                List<String[]> courses = context.portalRepository().parseDropdownOptions(html, "course");
+                if (courses.isEmpty()) {
+                    courses.addAll(context.portalRepository().parseDropdownOptions(html, "ddl"));
+                }
+
+                final String finalHtml = html;
+                final List<String[]> finalCourses = courses;
+
+                Platform.runLater(() -> {
+                    try {
+                        contentPane.getChildren().clear();
+                        if (finalCourses.isEmpty()) {
+                            contentPane.getChildren().add(buildErrorState(
+                                "No Courses Found",
+                                "No registered courses found in the Course Contents portal."
+                            ));
+                        } else {
+                            contentPane.getChildren().add(buildCourseContentsSelectorView(finalCourses, finalHtml));
+                        }
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "UI Render Error",
+                            "Failed to render the subject selection list: " + ex.getMessage()
+                        ));
+                    }
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
+                Platform.runLater(() -> {
+                    contentPane.getChildren().clear();
+                    contentPane.getChildren().add(buildErrorState(
+                        "Loading Error",
+                        "An unexpected error occurred while loading contents: " + e.getMessage()
+                    ));
+                });
+            }
+        }).start();
+    }
+
+    private ScrollPane buildCourseContentsSelectorView(List<String[]> courses, String rawHtml) {
+        ScrollPane sp = new ScrollPane();
+        sp.setFitToWidth(true);
+        sp.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
+
+        VBox content = new VBox(16);
+        content.setPadding(new Insets(16, 28, 24, 28));
+        content.setFillWidth(true);
+
+        Label subHeading = new Label("Course Contents (Lecture Notes, Quiz/Assignment Solutions, Research Papers etc)");
+        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;-fx-padding:0 0 4 0;");
+        content.getChildren().add(subHeading);
+
+        VBox card = new VBox(0);
+        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+
+        HBox headerBox = new HBox(0);
+        headerBox.setStyle("-fx-background-color:#f8fafc;-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+
+        Label hNum = new Label("#");
+        hNum.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+        hNum.setMinWidth(60); hNum.setMaxWidth(60);
+
+        Label hTitle = new Label("Course Title");
+        hTitle.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+        hTitle.setMinWidth(450); hTitle.setMaxWidth(450);
+
+        Label hAction = new Label("Action");
+        hAction.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+        hAction.setMinWidth(150); hAction.setMaxWidth(150);
+
+        headerBox.getChildren().addAll(hNum, hTitle, hAction);
+        card.getChildren().add(headerBox);
+
+        for (int i = 0; i < courses.size(); i++) {
+            String[] course = courses.get(i);
+            String val = course[0];
+            String title = course[1];
+
+            HBox dataRow = new HBox(0);
+            String bg = (i % 2 == 1) ? "#f8fafc" : "white";
+            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+            dataRow.setAlignment(Pos.CENTER_LEFT);
+
+            Label cNum = new Label(String.valueOf(i + 1));
+            cNum.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+            cNum.setMinWidth(60); cNum.setMaxWidth(60);
+
+            Label cTitle = new Label(title);
+            cTitle.setWrapText(true);
+            cTitle.setStyle("-fx-font-size:12px;-fx-text-fill:#0066cc;-fx-underline:true;-fx-cursor:hand;-fx-padding:0 12;-fx-font-weight:bold;");
+            cTitle.setMinWidth(450); cTitle.setMaxWidth(450);
+            cTitle.setOnMouseClicked(e -> loadCourseContentsDetails(val, title, rawHtml));
+
+            Button viewBtn = new Button("View Contents");
+            viewBtn.setCursor(javafx.scene.Cursor.HAND);
+            viewBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 12;");
+            viewBtn.setOnAction(e -> loadCourseContentsDetails(val, title, rawHtml));
+
+            HBox btnWrapper = new HBox(viewBtn);
+            btnWrapper.setAlignment(Pos.CENTER_LEFT);
+            btnWrapper.setPadding(new Insets(0, 12, 0, 12));
+            btnWrapper.setMinWidth(150); btnWrapper.setMaxWidth(150);
+
+            dataRow.getChildren().addAll(cNum, cTitle, btnWrapper);
+            card.getChildren().add(dataRow);
+        }
+
+        content.getChildren().add(card);
+        sp.setContent(content);
+        return sp;
+    }
+
+    private void loadCourseContentsDetails(String courseId, String courseTitle, String pageHtml) {
+        showLoading("Loading contents for " + courseTitle + "...");
+        new Thread(() -> {
+            try {
+                String ddName = context.portalRepository().findDropdownName(pageHtml, "course");
+                if (ddName == null) ddName = context.portalRepository().findDropdownName(pageHtml, "ddl");
+                
+                if (ddName == null) {
+                    Platform.runLater(() -> {
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Parsing Error",
+                            "Failed to identify the course selection dropdown."
+                        ));
+                    });
+                    return;
+                }
+
+                String resultHtml = context.portalRepository().postbackWithDropdown("CoursePortalContentsSummary.aspx", ddName, courseId);
+                if (resultHtml == null) {
+                    Platform.runLater(() -> {
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Connection Error",
+                            "Failed to fetch course details from the server."
+                        ));
+                    });
+                    return;
+                }
+
+                try {
+                    java.nio.file.Files.writeString(java.nio.file.Paths.get("course_contents_postback.html"), resultHtml);
+                } catch (Exception ignored) {}
+
+                final String finalResult = resultHtml;
+                Platform.runLater(() -> {
+                    contentPane.getChildren().clear();
+                    try {
+                        contentPane.getChildren().add(buildCourseContentsDetailView(courseId, courseTitle, finalResult, pageHtml));
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Parsing Error",
+                            "Failed to read the course content table cleanly."
+                        ));
+                    }
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
+                Platform.runLater(() -> {
+                    contentPane.getChildren().clear();
+                    contentPane.getChildren().add(buildErrorState(
+                        "Loading Error",
+                        "An unexpected error occurred while fetching details: " + e.getMessage()
+                    ));
+                });
+            }
+        }).start();
+    }
+
+    private ScrollPane buildCourseContentsDetailView(String courseId, String courseTitle, String html, String originalPageHtml) {
+        ScrollPane sp = new ScrollPane();
+        sp.setFitToWidth(true);
+        sp.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
+
+        VBox content = new VBox(16);
+        content.setPadding(new Insets(16, 28, 24, 28));
+        content.setFillWidth(true);
+
+        Button backBtn = new Button("← Back to Subjects");
+        backBtn.setCursor(javafx.scene.Cursor.HAND);
+        backBtn.setStyle("-fx-background-color:white;-fx-text-fill:#004643;-fx-border-color:#004643;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
+        backBtn.setOnAction(e -> {
+            activeTab = ""; // Force reload
+            loadTab("portal_contents");
+        });
+
+        Document doc = Jsoup.parse(html);
+        Element table = findMainGridTable(doc, "DataContent_gvPortalSummary");
+
+        List<String[]> filesToDownload = new ArrayList<>();
+        if (table != null) {
+            Elements rows = table.select("tr");
+            for (int r = 1; r < rows.size(); r++) {
+                Element row = rows.get(r);
+                Elements cells = row.select("td");
+                if (cells.size() >= 3) {
+                    String titleText = cells.get(1).text().trim().replaceAll("\\s+", " ");
+                    String descText = cells.size() > 2 ? cells.get(2).text().trim().replaceAll("\\s+", " ") : "";
+                    
+                    for (Element cell : cells) {
+                        Element aTag = cell.select("a").first();
+                        if (aTag != null && !aTag.attr("href").isEmpty() && aTag.attr("href").toLowerCase().contains("download")) {
+                            String href = aTag.attr("href");
+                            filesToDownload.add(new String[]{href, titleText, descText});
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        HBox topBar = new HBox(12);
+        topBar.setStyle("-fx-padding:0 0 4 0;");
+        topBar.getChildren().add(backBtn);
+
+        if (!filesToDownload.isEmpty()) {
+            Button downloadAllBtn = new Button("⬇ Download All (" + filesToDownload.size() + " files)");
+            downloadAllBtn.setCursor(javafx.scene.Cursor.HAND);
+            downloadAllBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:12px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:6 12;");
+            downloadAllBtn.setOnAction(e -> triggerDownloadAll(filesToDownload, courseId, courseTitle, html, originalPageHtml));
+            topBar.getChildren().add(downloadAllBtn);
+        }
+        content.getChildren().add(topBar);
+
+        Label titleLabel = new Label(courseTitle + " - Course Contents");
+        titleLabel.setStyle("-fx-font-size:16px;-fx-font-weight:bold;-fx-text-fill:#334155;");
+        content.getChildren().add(titleLabel);
+
+        if (table != null) {
+            String tableText = table.text().trim();
+            if (tableText.contains("No Content Found Selected Course") || tableText.contains("No Content Found For Selected Course")) {
+                renderEmptyContentsState(content);
+            } else {
+                Elements rows = table.select("tr");
+                if (rows.size() > 1) {
+                    VBox tableCard = buildNativeContentsTable(rows, courseTitle);
+                    content.getChildren().add(tableCard);
+                } else {
+                    renderEmptyContentsState(content);
+                }
+            }
+        } else {
+            renderEmptyContentsState(content);
+        }
+
+        sp.setContent(content);
+        return sp;
+    }
+
+    private void renderEmptyContentsState(VBox content) {
+        VBox emptyCard = new VBox(12);
+        emptyCard.setAlignment(Pos.CENTER);
+        emptyCard.setPadding(new Insets(32, 24, 32, 24));
+        emptyCard.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+
+        Label icon = new Label("📂");
+        icon.setStyle("-fx-font-size:28px;");
+
+        Label label = new Label("No Course Contents Found");
+        label.setStyle("-fx-text-fill:#475569;-fx-font-size:13px;-fx-font-weight:bold;");
+
+        Label desc = new Label("There are currently no lecture notes, assignments, or study materials uploaded for this course.");
+        desc.setStyle("-fx-text-fill:#64748b;-fx-font-size:11px;-fx-text-alignment:center;");
+        desc.setWrapText(true);
+
+        emptyCard.getChildren().addAll(icon, label, desc);
+        content.getChildren().add(emptyCard);
+    }
+
+    private VBox buildNativeContentsTable(Elements rows, String courseTitle) {
+        VBox card = new VBox(0);
+        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        
+        Element headerRow = rows.first();
+        if (headerRow == null) return card;
+
+        Elements headerCells = headerRow.select("th, td");
+        List<String> headers = new ArrayList<>();
+        for (Element hc : headerCells) {
+            headers.add(hc.text().trim());
+        }
+
+        HBox headerBox = new HBox(0);
+        headerBox.setStyle("-fx-background-color:#f8fafc;-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+        for (int i = 0; i < headers.size(); i++) {
+            Label hl = new Label(headers.get(i));
+            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+            double w = contentsColW(headers.get(i), i, headers.size());
+            hl.setMinWidth(w);
+            hl.setMaxWidth(w);
+            headerBox.getChildren().add(hl);
+        }
+        card.getChildren().add(headerBox);
+
+        for (int r = 1; r < rows.size(); r++) {
+            Element row = rows.get(r);
+            Elements cells = row.select("td");
+            if (cells.isEmpty()) continue;
+
+            HBox dataRow = new HBox(0);
+            String bg = (r % 2 == 0) ? "#f8fafc" : "white";
+            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+            dataRow.setAlignment(Pos.CENTER_LEFT);
+
+            String titleText = "";
+            String descText = "";
+
+            for (int c = 0; c < cells.size(); c++) {
+                if (c >= headers.size()) break;
+
+                Element cell = cells.get(c);
+                String txt = cell.text().trim().replaceAll("\\s+", " ");
+                double w = contentsColW(headers.get(c), c, headers.size());
+                Node cellNode;
+
+                if (c == 1) titleText = txt;
+                if (c == 2) descText = txt;
+
+                Element aTag = cell.select("a").first();
+                if (aTag != null && !aTag.attr("href").isEmpty()) {
+                    String linkText = aTag.text().trim();
+                    String href = aTag.attr("href");
+
+                    Button actBtn = new Button(linkText);
+                    actBtn.setCursor(javafx.scene.Cursor.HAND);
+                    actBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 12;");
+                    
+                    final String finalTitle = titleText;
+                    final String finalDesc = descText;
+                    actBtn.setOnAction(e -> triggerFileDownload(href, finalTitle, finalDesc, actBtn));
+
+                    HBox btnWrapper = new HBox(actBtn);
+                    btnWrapper.setAlignment(Pos.CENTER_LEFT);
+                    btnWrapper.setPadding(new Insets(0, 12, 0, 12));
+                    btnWrapper.setMinWidth(w);
+                    btnWrapper.setMaxWidth(w);
+                    cellNode = btnWrapper;
+                } else {
+                    Label cl = new Label(txt);
+                    cl.setWrapText(true);
+                    cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                    cl.setMinWidth(w);
+                    cl.setMaxWidth(w);
+                    cellNode = cl;
+                }
+
+                dataRow.getChildren().add(cellNode);
+            }
+            card.getChildren().add(dataRow);
+        }
+
+        return card;
+    }
+
+    private double contentsColW(String h, int i, int total) {
+        String l = h.toLowerCase();
+        if (l.contains("#")) return 50;
+        if (l.contains("title")) return 200;
+        if (l.contains("description")) return 320;
+        if (l.contains("date")) return 130;
+        if (l.contains("download")) return 110;
+        return 120;
+    }
+
+    private String sanitizeFilename(String name) {
+        if (name == null) return "";
+        return name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+    }
+
+    private String getCustomFilename(String docTitle, String docDesc, String extension) {
+        String titlePart = sanitizeFilename(docTitle);
+        String descPart = sanitizeFilename(docDesc);
+        
+        String filename = titlePart;
+        if (!descPart.isEmpty()) {
+            if (filename.isEmpty()) {
+                filename = descPart;
+            } else {
+                filename = filename + " - " + descPart;
+            }
+        }
+        
+        if (filename.isEmpty()) {
+            filename = "document_" + System.currentTimeMillis();
+        }
+        
+        if (extension != null && !extension.isEmpty()) {
+            if (!extension.startsWith(".")) {
+                extension = "." + extension;
+            }
+            if (!filename.toLowerCase().endsWith(extension.toLowerCase())) {
+                filename = filename + extension;
+            }
+        }
+        return filename;
+    }
+
+    private Element findMainGridTable(Document doc, String preferredId) {
+        if (preferredId != null && !preferredId.isEmpty()) {
+            Element tbl = doc.getElementById(preferredId);
+            if (tbl != null) return tbl;
+        }
+        for (Element tbl : doc.select("table.Grid")) {
+            boolean isStudentDetails = tbl.parents().stream()
+                .anyMatch(p -> p.hasClass("studentdetails") || p.id().equals("studentdetails") || p.tagName().equals("li"));
+            if (isStudentDetails) continue;
+
+            String text = tbl.text().toLowerCase();
+            if (text.contains("name :") || text.contains("roll no :") || text.contains("father name :")) {
+                continue;
+            }
+            return tbl;
+        }
+        return null;
+    }
+
+    private void triggerFileDownload(String href, String docTitle, String docDesc, Button btn) {
+        if (btn != null) {
+            Platform.runLater(() -> btn.setDisable(true));
+        }
+
+        new Thread(() -> {
+            try {
+                try (Response response = context.portalRepository().downloadFile(href)) {
+                    if (!response.isSuccessful()) {
+                        Platform.runLater(() -> {
+                            if (btn != null) btn.setDisable(false);
+                            showErrorDialog("Download Error", "Server returned HTTP " + response.code());
+                        });
+                        return;
+                    }
+
+                    ResponseBody body = response.body();
+                    if (body == null) {
+                        Platform.runLater(() -> {
+                            if (btn != null) btn.setDisable(false);
+                            showErrorDialog("Download Error", "Empty response body received.");
+                        });
+                        return;
+                    }
+
+                    String extension = ".pdf";
+                    String disposition = response.header("Content-Disposition");
+                    String serverFilename = "";
+                    if (disposition != null && disposition.contains("filename=")) {
+                        int index = disposition.indexOf("filename=");
+                        String rawFilename = disposition.substring(index + 9).trim();
+                        if (rawFilename.startsWith("\"") && rawFilename.endsWith("\"")) {
+                            rawFilename = rawFilename.substring(1, rawFilename.length() - 1);
+                        } else if (rawFilename.contains(";")) {
+                            rawFilename = rawFilename.substring(0, rawFilename.indexOf(";")).trim();
+                        }
+                        serverFilename = rawFilename;
+                    }
+
+                    int dotIdx = serverFilename.lastIndexOf('.');
+                    if (dotIdx > 0) {
+                        extension = serverFilename.substring(dotIdx);
+                    } else if (href.contains("fileType=q")) {
+                        extension = ".pdf";
+                    }
+
+                    final String finalFilename = getCustomFilename(docTitle, docDesc, extension);
+
+                    // Write to temporary file
+                    File tempFile = File.createTempFile("assignly_download_", ".tmp");
+                    tempFile.deleteOnExit();
+                    try (InputStream is = body.byteStream();
+                         OutputStream os = new FileOutputStream(tempFile)) {
+                        byte[] buffer = new byte[8192];
+                        int read;
+                        while ((read = is.read(buffer)) != -1) {
+                            os.write(buffer, 0, read);
+                        }
+                    }
+
+                    final String finalExt = extension;
+                    Platform.runLater(() -> {
+                        FileChooser fileChooser = new FileChooser();
+                        fileChooser.setTitle("Save Course Document");
+                        fileChooser.setInitialFileName(finalFilename);
+
+                        if (!finalExt.isEmpty()) {
+                            fileChooser.getExtensionFilters().add(
+                                new FileChooser.ExtensionFilter(finalExt.toUpperCase().substring(1) + " Files", "*" + finalExt)
+                            );
+                        }
+                        fileChooser.getExtensionFilters().add(
+                            new FileChooser.ExtensionFilter("All Files", "*.*")
+                        );
+
+                        File file = fileChooser.showSaveDialog(context.stage());
+
+                        if (file != null) {
+                            new Thread(() -> {
+                                try {
+                                    java.nio.file.Files.copy(tempFile.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                    Platform.runLater(() -> {
+                                        if (btn != null) btn.setDisable(false);
+                                        showSuccessDialog("Download Complete", "File saved: " + file.getName());
+                                    });
+                                } catch (Exception ex) {
+                                    ex.printStackTrace();
+                                    Platform.runLater(() -> {
+                                        if (btn != null) btn.setDisable(false);
+                                        showErrorDialog("Download Failed", "Error saving file: " + ex.getMessage());
+                                    });
+                                } finally {
+                                    tempFile.delete();
+                                }
+                            }).start();
+                        } else {
+                            if (btn != null) btn.setDisable(false);
+                            tempFile.delete();
+                        }
+                    });
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                Platform.runLater(() -> {
+                    if (btn != null) btn.setDisable(false);
+                    showErrorDialog("Download Error", "Connection failed: " + ex.getMessage());
+                });
+            }
+        }).start();
+    }
+
+    private void triggerDownloadAll(List<String[]> filesToDownload, String courseId, String courseTitle, String html, String originalPageHtml) {
+        DirectoryChooser dirChooser = new DirectoryChooser();
+        dirChooser.setTitle("Select Directory to Save All Files for " + courseTitle);
+        File selectedDir = dirChooser.showDialog(context.stage());
+        if (selectedDir == null) return;
+
+        showLoading("Downloading all files to " + selectedDir.getName() + "...");
+
+        new Thread(() -> {
+            int successCount = 0;
+            int total = filesToDownload.size();
+            List<String> failedFiles = new ArrayList<>();
+
+            for (int i = 0; i < total; i++) {
+                String[] fileInfo = filesToDownload.get(i);
+                String href = fileInfo[0];
+                String docTitle = fileInfo[1];
+                String docDesc = fileInfo[2];
+
+                final int currentIdx = i + 1;
+                Platform.runLater(() -> {
+                    showLoading("Downloading file " + currentIdx + " of " + total + ": " + docTitle + "...");
+                });
+
+                try {
+                    try (Response response = context.portalRepository().downloadFile(href)) {
+                        if (!response.isSuccessful() || response.body() == null) {
+                            failedFiles.add(docTitle + " (HTTP " + response.code() + ")");
+                            continue;
+                        }
+
+                        String extension = ".pdf";
+                        String disposition = response.header("Content-Disposition");
+                        String serverFilename = "";
+                        if (disposition != null && disposition.contains("filename=")) {
+                            int idx = disposition.indexOf("filename=");
+                            String rawFilename = disposition.substring(idx + 9).trim();
+                            if (rawFilename.startsWith("\"") && rawFilename.endsWith("\"")) {
+                                rawFilename = rawFilename.substring(1, rawFilename.length() - 1);
+                            } else if (rawFilename.contains(";")) {
+                                rawFilename = rawFilename.substring(0, rawFilename.indexOf(";")).trim();
+                            }
+                            serverFilename = rawFilename;
+                        }
+
+                        int dotIdx = serverFilename.lastIndexOf('.');
+                        if (dotIdx > 0) {
+                            extension = serverFilename.substring(dotIdx);
+                        } else if (href.contains("fileType=q")) {
+                            extension = ".pdf";
+                        }
+
+                        String finalFilename = getCustomFilename(docTitle, docDesc, extension);
+
+                        File destFile = new File(selectedDir, finalFilename);
+                        try (InputStream is = response.body().byteStream();
+                             OutputStream os = new FileOutputStream(destFile)) {
+                            byte[] buffer = new byte[8192];
+                            int read;
+                            while ((read = is.read(buffer)) != -1) {
+                                os.write(buffer, 0, read);
+                            }
+                            successCount++;
+                        }
+                    }
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    failedFiles.add(docTitle + " (" + ex.getMessage() + ")");
+                }
+            }
+
+            final int finalSuccess = successCount;
+            final List<String> finalFailed = failedFiles;
+            Platform.runLater(() -> {
+                contentPane.getChildren().clear();
+                try {
+                    contentPane.getChildren().add(buildCourseContentsDetailView(courseId, courseTitle, html, originalPageHtml));
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    activeTab = "";
+                    loadTab("portal_contents");
+                }
+
+                if (finalFailed.isEmpty()) {
+                    showSuccessDialog("Download All Complete", "Successfully downloaded all " + finalSuccess + " files to " + selectedDir.getAbsolutePath());
+                } else {
+                    String msg = "Downloaded " + finalSuccess + " of " + total + " files.\nFailed files:\n" + String.join("\n", finalFailed);
+                    showErrorDialog("Download All Completed with Errors", msg);
+                }
+            });
+        }).start();
+    }
+
+    // ==================== PENDING ASSIGNMENTS ====================
+    private void loadPendingAssignmentsData() {
+        showLoading("Loading Pending Assignments...");
+        new Thread(() -> {
+            try {
+                String html = context.portalRepository().fetchPageHtml("CoursePortalPendingAssignments.aspx");
+                if (html == null) {
+                    Platform.runLater(() -> {
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Unable to load Pending Assignments",
+                            "Failed to connect to the portal. Please check your internet connection and try again."
+                        ));
+                    });
+                    return;
+                }
+
+                Platform.runLater(() -> {
+                    contentPane.getChildren().clear();
+                    try {
+                        contentPane.getChildren().add(buildPendingAssignmentsView(html));
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildErrorState(
+                            "Parsing Error",
+                            "Failed to read the Pending Assignments table cleanly."
+                        ));
+                    }
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
+                Platform.runLater(() -> {
+                    contentPane.getChildren().clear();
+                    contentPane.getChildren().add(buildErrorState(
+                        "Loading Error",
+                        "An unexpected error occurred while loading pending assignments: " + e.getMessage()
+                    ));
+                });
+            }
+        }).start();
+    }
+
+    private ScrollPane buildPendingAssignmentsView(String html) {
+        ScrollPane sp = new ScrollPane();
+        sp.setFitToWidth(true);
+        sp.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
+
+        VBox content = new VBox(16);
+        content.setPadding(new Insets(16, 28, 24, 28));
+        content.setFillWidth(true);
+
+        Document doc = Jsoup.parse(html);
+        
+        String headingText = "Pending Assignments";
+        Element h3 = doc.select("h3").first();
+        if (h3 != null && !h3.text().trim().isEmpty()) {
+            headingText = h3.text().trim();
+        }
+
+        Label subHeading = new Label(headingText);
+        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;-fx-padding:0 0 4 0;");
+        content.getChildren().add(subHeading);
+
+        Element table = findMainGridTable(doc, "DataContent_gvPortalSummary");
+
+        if (table != null) {
+            String tableText = table.text().trim();
+            if (tableText.contains("No Assignment Found") || tableText.contains("No Pending Assignment")) {
+                renderEmptyPendingState(content);
+            } else {
+                Elements rows = table.select("tr");
+                if (rows.size() > 1) {
+                    VBox tableCard = buildNativePendingTable(rows);
+                    content.getChildren().add(tableCard);
+                } else {
+                    renderEmptyPendingState(content);
+                }
+            }
+        } else {
+            renderEmptyPendingState(content);
+        }
+
+        sp.setContent(content);
+        return sp;
+    }
+
+    private void renderEmptyPendingState(VBox content) {
+        VBox emptyCard = new VBox(12);
+        emptyCard.setAlignment(Pos.CENTER);
+        emptyCard.setPadding(new Insets(32, 24, 32, 24));
+        emptyCard.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+
+        Label icon = new Label("📌");
+        icon.setStyle("-fx-font-size:28px;");
+
+        Label label = new Label("No Pending Assignments");
+        label.setStyle("-fx-text-fill:#475569;-fx-font-size:13px;-fx-font-weight:bold;");
+
+        Label desc = new Label("There are currently no pending assignments requiring your attention. All assignments have been submitted or closed.");
+        desc.setStyle("-fx-text-fill:#64748b;-fx-font-size:11px;-fx-text-alignment:center;");
+        desc.setWrapText(true);
+
+        emptyCard.getChildren().addAll(icon, label, desc);
+        content.getChildren().add(emptyCard);
+    }
+
+    private VBox buildNativePendingTable(Elements rows) {
+        VBox card = new VBox(0);
+        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        
+        Element headerRow = rows.first();
+        if (headerRow == null) return card;
+
+        Elements headerCells = headerRow.select("th, td");
+        List<String> headers = new ArrayList<>();
+        for (Element hc : headerCells) {
+            headers.add(hc.text().trim());
+        }
+
+        HBox headerBox = new HBox(0);
+        headerBox.setStyle("-fx-background-color:#f8fafc;-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+        for (int i = 0; i < headers.size(); i++) {
+            Label hl = new Label(headers.get(i));
+            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+            double w = pendingColW(headers.get(i), i, headers.size());
+            hl.setMinWidth(w);
+            hl.setMaxWidth(w);
+            headerBox.getChildren().add(hl);
+        }
+        card.getChildren().add(headerBox);
+
+        for (int r = 1; r < rows.size(); r++) {
+            Element row = rows.get(r);
+            Elements cells = row.select("td");
+            if (cells.isEmpty()) continue;
+
+            HBox dataRow = new HBox(0);
+            dataRow.setAlignment(Pos.CENTER_LEFT);
+            String bg = (r % 2 == 0) ? "#f8fafc" : "white";
+            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+
+            String courseTitle = "";
+            String assignmentTitle = "";
+            boolean isRowClosed = false;
+
+            // Scan columns for status first to determine closed state
+            for (int c = 0; c < cells.size(); c++) {
+                if (c >= headers.size()) break;
+                String colHeader = headers.get(c).toLowerCase();
+                if (colHeader.contains("status")) {
+                    String statusText = cells.get(c).text().toLowerCase();
+                    if (statusText.contains("closed")) {
+                        isRowClosed = true;
+                    }
+                }
+            }
+
+            for (int c = 0; c < cells.size(); c++) {
+                if (c >= headers.size()) break;
+
+                Element cell = cells.get(c);
+                String txt = cell.text().trim().replaceAll("\\s+", " ");
+                double w = pendingColW(headers.get(c), c, headers.size());
+                Node cellNode;
+
+                if (c == 1) courseTitle = txt;
+                if (c == 2) assignmentTitle = txt;
+
+                String colHeader = headers.get(c).toLowerCase();
+
+                if (colHeader.contains("submission")) {
+                    Label badge = new Label(txt);
+                    boolean isSubmitted = txt.toLowerCase().contains("submitted") && !txt.toLowerCase().contains("not");
+                    if (isSubmitted) {
+                        badge.setStyle("-fx-background-color:#def7ec;-fx-text-fill:#03543f;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                    } else {
+                        badge.setStyle("-fx-background-color:#fde8e8;-fx-text-fill:#9b1c1c;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                    }
+                    HBox wrapper = new HBox(badge);
+                    wrapper.setAlignment(Pos.CENTER_LEFT);
+                    wrapper.setPadding(new Insets(0, 12, 0, 12));
+                    wrapper.setMinWidth(w);
+                    wrapper.setMaxWidth(w);
+                    cellNode = wrapper;
+                } else if (colHeader.contains("status")) {
+                    Label badge = new Label(txt);
+                    if (isRowClosed) {
+                        badge.setStyle("-fx-background-color:#f3f4f6;-fx-text-fill:#4b5563;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                    } else {
+                        badge.setStyle("-fx-background-color:#eff6ff;-fx-text-fill:#1e40af;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                    }
+                    HBox wrapper = new HBox(badge);
+                    wrapper.setAlignment(Pos.CENTER_LEFT);
+                    wrapper.setPadding(new Insets(0, 12, 0, 12));
+                    wrapper.setMinWidth(w);
+                    wrapper.setMaxWidth(w);
+                    cellNode = wrapper;
+                } else if (colHeader.contains("download") || colHeader.contains("dowload")) {
+                    String href = context.portalRepository().extractAssignmentDownloadLink(cell);
+                    Button dlBtn = new Button("Download");
+                    dlBtn.setCursor(javafx.scene.Cursor.HAND);
+                    dlBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
+                    
+                    final String finalCourse = courseTitle;
+                    final String finalAssign = assignmentTitle;
+
+                    if (href == null || href.isBlank()) {
+                        dlBtn.setOnAction(e -> showWarningDialog("Download Assignment", "No assignment files have been uploaded by the teacher."));
+                    } else {
+                        dlBtn.setOnAction(e -> triggerAssignmentDownload(href, finalAssign, finalCourse, dlBtn));
+                    }
+
+                    HBox wrapper = new HBox(dlBtn);
+                    wrapper.setAlignment(Pos.CENTER_LEFT);
+                    wrapper.setPadding(new Insets(0, 12, 0, 12));
+                    wrapper.setMinWidth(w);
+                    wrapper.setMaxWidth(w);
+                    cellNode = wrapper;
+                } else if (colHeader.contains("submit")) {
+                    if (!isRowClosed) {
+                        String submitUrl = context.portalRepository().extractAssignmentSubmitLink(cell, "CoursePortalPendingAssignments.aspx");
+                        if (!submitUrl.isEmpty()) {
+                            Button subBtn = new Button("Submit");
+                            subBtn.setCursor(javafx.scene.Cursor.HAND);
+                            subBtn.setStyle("-fx-background-color:#23A9BD;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
+                            subBtn.setOnAction(e -> triggerAssignmentUpload(submitUrl, subBtn));
+
+                            HBox wrapper = new HBox(subBtn);
+                            wrapper.setAlignment(Pos.CENTER_LEFT);
+                            wrapper.setPadding(new Insets(0, 12, 0, 12));
+                            wrapper.setMinWidth(w);
+                            wrapper.setMaxWidth(w);
+                            cellNode = wrapper;
+                        } else {
+                            Label cl = new Label(txt.isEmpty() ? "-" : txt);
+                            cl.setStyle("-fx-font-size:12px;-fx-text-fill:#64748b;-fx-padding:0 12;");
+                            cl.setMinWidth(w);
+                            cl.setMaxWidth(w);
+                            cellNode = cl;
+                        }
+                    } else {
+                        Label cl = new Label(txt);
+                        if (txt.toLowerCase().contains("closed")) {
+                            cl.setStyle("-fx-font-size:11px;-fx-text-fill:#b91c1c;-fx-font-weight:bold;-fx-padding:0 12;");
+                        } else {
+                            cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                        }
+                        cl.setMinWidth(w);
+                        cl.setMaxWidth(w);
+                        cellNode = cl;
+                    }
+                } else {
+                    Label cl = new Label(txt);
+                    cl.setWrapText(true);
+                    cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                    cl.setMinWidth(w);
+                    cl.setMaxWidth(w);
+                    cellNode = cl;
+                }
+
+                dataRow.getChildren().add(cellNode);
+            }
+            card.getChildren().add(dataRow);
+        }
+
+        return card;
+    }
+
+    private double pendingColW(String h, int i, int total) {
+        String l = h.toLowerCase();
+        if (l.contains("#")) return 40;
+        if (l.contains("course")) return 180;
+        if (l.contains("title")) return 150;
+        if (l.contains("start")) return 110;
+        if (l.contains("deadline") || l.contains("due")) return 140;
+        if (l.contains("submission")) return 110;
+        if (l.contains("status")) return 80;
+        if (l.contains("download") || l.contains("dowload")) return 100;
+        if (l.contains("submit")) return 90;
+        return 100;
+    }
+
+    private void showSuccessDialog(String title, String content) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(content);
+        alert.showAndWait();
+    }
+
+    private void showErrorDialog(String title, String content) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(content);
+        alert.showAndWait();
+    }
+
     public VBox getRoot() { return root; }
-}
+  }

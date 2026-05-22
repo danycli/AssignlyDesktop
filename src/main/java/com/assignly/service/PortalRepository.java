@@ -6,6 +6,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -35,6 +36,34 @@ public class PortalRepository {
         record CaptchaRequired() implements LoginResult {}
         record Error(String message) implements LoginResult {}
     }
+
+    public sealed interface UploadResult {
+        record Success() implements UploadResult {}
+        record NetworkError() implements UploadResult {}
+        record Timeout() implements UploadResult {}
+        record Rejected(String reason) implements UploadResult {}
+        record Error(String message) implements UploadResult {}
+    }
+
+    public sealed interface DownloadResult {
+        record Success(byte[] bytes, String fileName, String mimeType) implements DownloadResult {}
+        record NetworkError() implements DownloadResult {}
+        record Rejected(String reason) implements DownloadResult {}
+        record Error(String message) implements DownloadResult {}
+    }
+
+    public record InstructionFile(String fileName, String downloadLink) {}
+
+    public sealed interface InstructionFilesResult {
+        record Success(List<InstructionFile> files) implements InstructionFilesResult {}
+        record NetworkError() implements InstructionFilesResult {}
+        record Rejected(String reason) implements InstructionFilesResult {}
+        record Error(String message) implements InstructionFilesResult {}
+    }
+
+    public record PostBackInfo(String target, String argument) {}
+    public record PostBackLink(PostBackInfo info, String sourcePageUrl) {}
+    public record HtmlDownloadCandidate(String url, PostBackInfo postBackInfo) {}
 
     public record StudentProfile(String name, String rollNo, String program) {}
 
@@ -354,13 +383,18 @@ public class PortalRepository {
         return new DashboardData(photoUrl, info, attendance);
     }
 
-    /** Download student photo as raw bytes (for JavaFX Image) */
+    /** Download student photo as raw bytes (for JavaFX Image) using Dashboard as referer */
     public byte[] fetchPhotoBytes(String photoUrl) {
+        return fetchPhotoBytes(photoUrl, BASE_URL + "/Dashboard.aspx");
+    }
+
+    /** Download an image as raw bytes specifying a custom referer */
+    public byte[] fetchPhotoBytes(String photoUrl, String referer) {
         if (photoUrl == null || photoUrl.isBlank()) return null;
         try {
             Request request = new Request.Builder()
                     .url(photoUrl)
-                    .header("Referer", BASE_URL + "/Dashboard.aspx")
+                    .header("Referer", referer)
                     .header("User-Agent", USER_AGENT)
                     .build();
             try (Response response = client.newCall(request).execute()) {
@@ -705,4 +739,1477 @@ public class PortalRepository {
         return actualProgram.contains(normalizeToken(p[1]))
                 && (actualRoll.contains(normalizeToken(p[2])));
     }
+
+    /**
+     * Download a file from the portal using the active authenticated session.
+     */
+    public Response downloadFile(String relativeUrl) throws IOException {
+        String url = relativeUrl.startsWith("http") ? relativeUrl : BASE_URL + "/" + relativeUrl;
+        Request request = new Request.Builder()
+                .url(url)
+                .header("Referer", BASE_URL + "/CoursePortalContentsSummary.aspx")
+                .header("User-Agent", USER_AGENT)
+                .build();
+        return client.newCall(request).execute();
+    }
+
+    // ---------- Logging helpers ----------
+    private static void logD(String tag, String message) {
+        System.out.println("[" + tag + "] " + message);
+    }
+    private static void logE(String tag, String message) {
+        System.err.println("[" + tag + "] " + message);
+    }
+    private static void logE(String tag, String message, Throwable t) {
+        System.err.println("[" + tag + "] " + message);
+        t.printStackTrace();
+    }
+
+    // ---------- Ported Helper & Utility Methods ----------
+    private static final Pattern POSTBACK_PATTERN1 = Pattern.compile(
+            "__doPostBack\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*,\\s*['\"]([^'\"]*)['\"]\\s*\\)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern POSTBACK_PATTERN2 = Pattern.compile(
+            "WebForm_DoPostBackWithOptions\\s*\\(\\s*new\\s+WebForm_PostBackOptions\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*,\\s*['\"]([^'\"]*)['\"]\\s*", Pattern.CASE_INSENSITIVE);
+    private static final List<Pattern> JS_URL_PATTERNS = List.of(
+            Pattern.compile("window\\.open\\(\\s*['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("window\\.location(?:\\.href)?\\s*=\\s*['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("location\\.replace\\(\\s*['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE)
+    );
+
+    public boolean isPostBackDownloadLink(String link) {
+        return link != null && link.toLowerCase().startsWith("postback:");
+    }
+
+    public PostBackLink extractPostBackLinkFromLink(String link) {
+        if (!isPostBackDownloadLink(link)) return null;
+        String clean = link.substring("postback:".length());
+        int index = clean.indexOf("|");
+        String payload = (index != -1) ? clean.substring(0, index) : clean;
+        String sourcePageUrl = null;
+        if (index != -1) {
+            String temp = clean.substring(index + 1);
+            if (!temp.isBlank()) {
+                sourcePageUrl = temp;
+            }
+        }
+        String[] parts = payload.split(",");
+        if (parts.length < 2) return null;
+        String target = decodePostBackPart(parts[0]);
+        String argument = decodePostBackPart(parts[1]);
+        return new PostBackLink(new PostBackInfo(target, argument), sourcePageUrl);
+    }
+
+    public String toPostBackDownloadLink(PostBackInfo info, String sourcePageUrl) {
+        String payload = encodePostBackPart(info.target()) + "," + encodePostBackPart(info.argument());
+        if (sourcePageUrl == null || sourcePageUrl.isBlank()) {
+            return "postback:" + payload;
+        } else {
+            return "postback:" + payload + "|" + sourcePageUrl;
+        }
+    }
+
+    private String encodePostBackPart(String value) {
+        try {
+            return URLEncoder.encode(value, StandardCharsets.UTF_8.toString()).replace("+", "%20");
+        } catch (Exception e) {
+            return value;
+        }
+    }
+
+    private String decodePostBackPart(String value) {
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8.toString());
+        } catch (Exception e) {
+            return value;
+        }
+    }
+
+    public PostBackInfo extractPostBackInfo(String value) {
+        if (value == null || value.isBlank()) return null;
+        Matcher m1 = POSTBACK_PATTERN1.matcher(value);
+        if (m1.find()) {
+            return new PostBackInfo(m1.group(1), m1.group(2));
+        }
+        Matcher m2 = POSTBACK_PATTERN2.matcher(value);
+        if (m2.find()) {
+            return new PostBackInfo(m2.group(1), m2.group(2));
+        }
+        return null;
+    }
+
+    public String extractUrlFromJavascript(String value) {
+        if (value == null || value.isBlank()) return null;
+        for (Pattern p : JS_URL_PATTERNS) {
+            Matcher m = p.matcher(value);
+            if (m.find()) {
+                String match = m.group(1);
+                if (match != null && !match.isBlank()) {
+                    return match;
+                }
+            }
+        }
+        return null;
+    }
+
+    public String extractAssignmentDownloadLink(Element downloadCell) {
+        if (downloadCell == null) return "";
+        Elements anchors = downloadCell.select("a");
+        for (Element a : anchors) {
+            String href = a.attr("href");
+            String onClick = a.attr("onclick");
+            PostBackInfo postBackInfo = extractPostBackInfo(href);
+            if (postBackInfo == null) postBackInfo = extractPostBackInfo(onClick);
+            if (postBackInfo != null) {
+                return toPostBackDownloadLink(postBackInfo, null);
+            }
+            String jsUrl = extractUrlFromJavascript(href);
+            if (jsUrl == null) jsUrl = extractUrlFromJavascript(onClick);
+            if (jsUrl != null && !jsUrl.isBlank()) {
+                return normalizeUrl(jsUrl);
+            }
+            String normalized = normalizeUrl(href);
+            if (!normalized.isBlank()) {
+                return normalized;
+            }
+        }
+        PostBackInfo cellPostBackInfo = extractPostBackInfo(downloadCell.attr("onclick"));
+        if (cellPostBackInfo != null) {
+            return toPostBackDownloadLink(cellPostBackInfo, null);
+        }
+        return normalizeUrl(extractUrlFromJavascript(downloadCell.attr("onclick")));
+    }
+
+    public String extractAssignmentSubmitLink(Element actionCell, String pageUrl) {
+        if (actionCell == null) return "";
+        Elements anchors = actionCell.select("a");
+        for (Element a : anchors) {
+            String href = a.attr("href");
+            String onClick = a.attr("onclick");
+            PostBackInfo postBackInfo = extractPostBackInfo(href);
+            if (postBackInfo == null) postBackInfo = extractPostBackInfo(onClick);
+            if (postBackInfo != null) {
+                return toPostBackDownloadLink(postBackInfo, pageUrl);
+            }
+            String jsUrl = extractUrlFromJavascript(href);
+            if (jsUrl == null) jsUrl = extractUrlFromJavascript(onClick);
+            if (jsUrl != null && !jsUrl.isBlank()) {
+                return normalizeUrl(jsUrl, pageUrl);
+            }
+            String normalized = normalizeUrl(href, pageUrl);
+            if (!normalized.isBlank()) {
+                return normalized;
+            }
+        }
+        PostBackInfo cellPostBackInfo = extractPostBackInfo(actionCell.attr("onclick"));
+        if (cellPostBackInfo != null) {
+            return toPostBackDownloadLink(cellPostBackInfo, pageUrl);
+        }
+        return normalizeUrl(extractUrlFromJavascript(actionCell.attr("onclick")), pageUrl);
+    }
+
+    public boolean looksLikeHtmlPayload(byte[] bytes) {
+        if (bytes == null || bytes.length < 4) return false;
+        int length = Math.min(bytes.length, 200);
+        String prefix = new String(bytes, 0, length, StandardCharsets.UTF_8).trim().toLowerCase();
+        return prefix.startsWith("<!doctype html") ||
+                prefix.startsWith("<html") ||
+                prefix.contains("<body") ||
+                prefix.contains("<head") ||
+                prefix.contains("<script");
+    }
+
+    public boolean isWebEndpointExtension(String extension) {
+        if (extension == null) return false;
+        String ext = extension.toLowerCase().trim().replaceFirst("^\\.", "");
+        return ext.equals("aspx") || ext.equals("html") || ext.equals("htm") || ext.equals("php") || ext.equals("jsp") || ext.equals("asp");
+    }
+
+    public String getExtensionFromMimeType(String mimeType) {
+        if (mimeType == null || mimeType.isBlank()) return "bin";
+        String clean = mimeType.split(";")[0].trim().toLowerCase();
+        switch (clean) {
+            case "application/pdf": return "pdf";
+            case "application/zip":
+            case "application/x-zip-compressed": return "zip";
+            case "application/x-rar-compressed": return "rar";
+            case "application/msword": return "doc";
+            case "application/vnd.openxmlformats-officedocument.wordprocessingml.document": return "docx";
+            case "application/vnd.ms-excel": return "xls";
+            case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": return "xlsx";
+            case "image/jpeg": return "jpg";
+            case "image/png": return "png";
+            case "image/gif": return "gif";
+            case "text/plain": return "txt";
+            case "text/html": return "html";
+            default: return "bin";
+        }
+    }
+
+    public String extractNameFromUrl(String finalUrl) {
+        try {
+            HttpUrl httpUrl = HttpUrl.parse(finalUrl);
+            if (httpUrl == null) return null;
+            String path = httpUrl.encodedPath();
+            String[] segments = path.split("/");
+            String lastSegment = null;
+            for (int i = segments.length - 1; i >= 0; i--) {
+                if (!segments[i].isBlank()) {
+                    lastSegment = segments[i];
+                    break;
+                }
+            }
+            if (lastSegment == null) return null;
+            String decoded = URLDecoder.decode(lastSegment, StandardCharsets.UTF_8.toString());
+            int dotIdx = decoded.lastIndexOf('.');
+            if (dotIdx != -1 && dotIdx < decoded.length() - 1) {
+                String namePart = decoded.substring(0, dotIdx);
+                String extPart = decoded.substring(dotIdx + 1);
+                if (!namePart.isBlank() && !extPart.isBlank() && !isWebEndpointExtension(extPart)) {
+                    return decoded;
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    public String extractFileName(String contentDisposition, String finalUrl, String mimeType) {
+        if (contentDisposition != null && !contentDisposition.isBlank()) {
+            List<Pattern> patterns = List.of(
+                    Pattern.compile("filename\\*\\s*=\\s*UTF-8''([^;\\s]+)", Pattern.CASE_INSENSITIVE),
+                    Pattern.compile("filename\\s*=\\s*\"([^\"]+)\"", Pattern.CASE_INSENSITIVE),
+                    Pattern.compile("filename\\s*=\\s*([^;\\s]+)", Pattern.CASE_INSENSITIVE)
+            );
+            for (Pattern p : patterns) {
+                Matcher m = p.matcher(contentDisposition);
+                if (m.find()) {
+                    String raw = m.group(1).trim();
+                    String decoded = raw;
+                    try {
+                        decoded = URLDecoder.decode(raw, StandardCharsets.UTF_8.toString());
+                    } catch (Exception ignored) {}
+                    String cleanName = sanitizeFileName(decoded);
+                    if (!cleanName.isBlank()) return cleanName;
+                }
+            }
+        }
+
+        String urlName = extractNameFromUrl(finalUrl);
+        if (urlName != null) {
+            String clean = sanitizeFileName(urlName);
+            if (!clean.isBlank()) return clean;
+        }
+
+        List<String> queryBasedName = List.of("filename", "file", "name", "download", "attachment", "doc", "document");
+        try {
+            HttpUrl httpUrl = HttpUrl.parse(finalUrl);
+            if (httpUrl != null) {
+                for (String param : queryBasedName) {
+                    String value = httpUrl.queryParameter(param);
+                    if (value != null && !value.isBlank()) {
+                        String clean = sanitizeFileName(value);
+                        if (!clean.isBlank()) {
+                            String ext = getExtensionFromMimeType(mimeType);
+                            return clean.contains(".") ? clean : clean + "." + ext;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        String ext = getExtensionFromMimeType(mimeType);
+        return "assignment_file." + ext;
+    }
+
+    public String sanitizeFileName(String name) {
+        if (name == null) return "";
+        return name
+                .replaceAll("[\\\\/:*?\"<>|]", "_")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    public boolean looksLikeDownloadTrigger(Element element) {
+        if (element == null) return false;
+        String fingerprint = (element.text() + " " +
+                element.attr("title") + " " +
+                element.attr("aria-label") + " " +
+                element.attr("id") + " " +
+                element.attr("name") + " " +
+                element.className() + " " +
+                element.attr("href") + " " +
+                element.attr("onclick")).toLowerCase();
+        return fingerprint.contains("download") ||
+                fingerprint.contains("attachment") ||
+                fingerprint.contains("instruction") ||
+                fingerprint.contains("file");
+    }
+
+    public HtmlDownloadCandidate extractCandidateFromClickable(Element element, String pageUrl) {
+        if (element == null) return null;
+        String href = element.attr("href");
+        String onClick = element.attr("onclick");
+        PostBackInfo postBackInfo = extractPostBackInfo(href);
+        if (postBackInfo == null) postBackInfo = extractPostBackInfo(onClick);
+        if (postBackInfo != null) {
+            return new HtmlDownloadCandidate(null, postBackInfo);
+        }
+        String rawUrl = "";
+        if (href.isBlank() || href.equals("#")) {
+            rawUrl = extractUrlFromJavascript(onClick);
+        } else if (href.toLowerCase().startsWith("javascript")) {
+            String js = extractUrlFromJavascript(href);
+            rawUrl = (js != null) ? js : extractUrlFromJavascript(onClick);
+        } else {
+            rawUrl = href;
+        }
+        String normalized = normalizeUrl(rawUrl, pageUrl);
+        return !normalized.isBlank() ? new HtmlDownloadCandidate(normalized, null) : null;
+    }
+
+    public String extractInstructionFileNameFromRow(Element row) {
+        if (row == null) return "instruction_file";
+        Elements cells = row.select("td");
+        if (!cells.isEmpty()) {
+            List<String> cellTexts = new ArrayList<>();
+            for (Element cell : cells) {
+                String text = cell.text().trim();
+                if (!text.isBlank() && !text.equalsIgnoreCase("download") && !text.matches("^\\d+$")) {
+                    cellTexts.add(text);
+                }
+            }
+            String extensionLike = null;
+            for (String text : cellTexts) {
+                if (text.matches(".*\\.[a-zA-Z0-9]{1,8}$")) {
+                    extensionLike = text;
+                    break;
+                }
+            }
+            String best = extensionLike;
+            if (best == null) {
+                String maxLenText = null;
+                for (String text : cellTexts) {
+                    if (maxLenText == null || text.length() > maxLenText.length()) {
+                        maxLenText = text;
+                    }
+                }
+                best = maxLenText;
+            }
+            if (best != null && !best.isBlank()) {
+                return sanitizeFileName(best);
+            }
+        }
+        Elements links = row.select("a");
+        String linkText = "";
+        for (Element link : links) {
+            String text = link.text().trim();
+            if (!text.isBlank() && !text.toLowerCase().contains("download")) {
+                linkText = text;
+                break;
+            }
+        }
+        return sanitizeFileName(linkText.isBlank() ? "instruction_file" : linkText);
+    }
+
+    public String extractDownloadCandidateFromElement(Element element, String pageUrl) {
+        if (element == null) return null;
+        String href = element.attr("href");
+        String onClick = element.attr("onclick");
+        PostBackInfo postBackInfo = extractPostBackInfo(href);
+        if (postBackInfo == null) postBackInfo = extractPostBackInfo(onClick);
+        if (postBackInfo != null) {
+            return toPostBackDownloadLink(postBackInfo, pageUrl);
+        }
+        String rawUrl = "";
+        if (href.isBlank() || href.equals("#")) {
+            rawUrl = extractUrlFromJavascript(onClick);
+        } else if (href.toLowerCase().startsWith("javascript")) {
+            String js = extractUrlFromJavascript(href);
+            rawUrl = (js != null) ? js : extractUrlFromJavascript(onClick);
+        } else {
+            rawUrl = href;
+        }
+        String normalized = normalizeUrl(rawUrl, pageUrl);
+        return !normalized.isBlank() ? normalized : null;
+    }
+
+    public List<InstructionFile> parseInstructionFilesFromHtml(String html, String pageUrl) {
+        Document doc = Jsoup.parse(html, pageUrl);
+        List<InstructionFile> files = new ArrayList<>();
+        Elements tableRows = doc.select("table tr");
+        for (Element row : tableRows) {
+            String rowText = row.text();
+            if (rowText.isBlank()) continue;
+            String rowLower = rowText.toLowerCase();
+            if (!row.select("th").isEmpty()) continue;
+            boolean hasDownloadWord = rowLower.contains("download");
+            if (!hasDownloadWord) {
+                for (Element el : row.select("a,button,input")) {
+                    if (el.text().toLowerCase().contains("download") || el.attr("value").toLowerCase().contains("download")) {
+                        hasDownloadWord = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasDownloadWord) continue;
+
+            String fileName = extractInstructionFileNameFromRow(row);
+            Elements clickable = row.select("a[href], a[onclick], button[onclick], input[onclick], span[onclick], input[type=submit], button");
+            String link = null;
+            for (Element el : clickable) {
+                String temp = extractDownloadCandidateFromElement(el, pageUrl);
+                if (temp != null && !temp.isBlank()) {
+                    link = temp;
+                    break;
+                }
+            }
+            if (link != null && !link.isBlank()) {
+                files.add(new InstructionFile(fileName, link));
+            }
+        }
+
+        if (!files.isEmpty()) {
+            return distinctInstructionFiles(files);
+        }
+
+        Elements allClickable = doc.select("a[href], a[onclick], button[onclick], input[onclick], span[onclick]");
+        for (Element element : allClickable) {
+            String text = element.text().isBlank() ? element.attr("value") : element.text();
+            text = text.trim();
+            if (!text.toLowerCase().contains("download")) continue;
+            String link = extractDownloadCandidateFromElement(element, pageUrl);
+            if (link == null) continue;
+            String name = text.replaceAll("(?i)download", "").trim();
+            if (name.isBlank()) name = "instruction_file";
+            files.add(new InstructionFile(sanitizeFileName(name), link));
+        }
+        return distinctInstructionFiles(files);
+    }
+
+    private List<InstructionFile> distinctInstructionFiles(List<InstructionFile> files) {
+        List<InstructionFile> distinct = new ArrayList<>();
+        Set<String> links = new HashSet<>();
+        for (InstructionFile f : files) {
+            if (links.add(f.downloadLink())) {
+                distinct.add(f);
+            }
+        }
+        return distinct;
+    }
+
+    public String resolveOrigin(String url) {
+        try {
+            HttpUrl parsed = HttpUrl.parse(url);
+            if (parsed != null) {
+                boolean defaultPort = (parsed.scheme().equals("https") && parsed.port() == 443)
+                        || (parsed.scheme().equals("http") && parsed.port() == 80);
+                if (defaultPort) {
+                    return parsed.scheme() + "://" + parsed.host();
+                } else {
+                    return parsed.scheme() + "://" + parsed.host() + ":" + parsed.port();
+                }
+            }
+        } catch (Exception ignored) {}
+        return BASE_URL;
+    }
+
+    public Request buildDownloadFollowRequest(String url, String referer) {
+        return new Request.Builder()
+                .url(url)
+                .header("Referer", referer)
+                .header("User-Agent", USER_AGENT)
+                .build();
+    }
+
+    public Request buildPostBackRequestFromPage(String pageUrl, String html, PostBackInfo info) {
+        Document doc = Jsoup.parse(html, pageUrl);
+        Element form = null;
+        for (Element f : doc.select("form")) {
+            if (f.selectFirst("input[name=__VIEWSTATE]") != null) {
+                form = f;
+                break;
+            }
+        }
+        if (form == null) {
+            form = doc.selectFirst("form");
+        }
+        if (form == null) return null;
+
+        FormBody.Builder postBuilder = new FormBody.Builder();
+        for (Element hidden : form.select("input[type=hidden]")) {
+            String name = hidden.attr("name");
+            if (name.isBlank() || name.equals("__EVENTTARGET") || name.equals("__EVENTARGUMENT")) continue;
+            postBuilder.add(name, hidden.attr("value"));
+        }
+        postBuilder.add("__EVENTTARGET", info.target());
+        postBuilder.add("__EVENTARGUMENT", info.argument());
+
+        String formAction = form.attr("action");
+        String postUrl = "";
+        if (formAction.isBlank()) {
+            postUrl = pageUrl;
+        } else if (formAction.toLowerCase().startsWith("http")) {
+            postUrl = formAction;
+        } else {
+            postUrl = normalizeUrl(formAction, pageUrl);
+        }
+        if (postUrl.isBlank()) return null;
+
+        return new Request.Builder()
+                .url(postUrl)
+                .post(postBuilder.build())
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Referer", pageUrl)
+                .header("Origin", resolveOrigin(pageUrl))
+                .header("User-Agent", USER_AGENT)
+                .build();
+    }
+
+    public HtmlDownloadCandidate findDownloadCandidateInHtml(String html, String pageUrl) {
+        Document doc = Jsoup.parse(html, pageUrl);
+
+        List<Element> assignmentFilesLinks = new ArrayList<>();
+        for (Element row : doc.select("table tr")) {
+            String rowText = row.text().toLowerCase();
+            if (rowText.contains("download") && row.select("th").isEmpty()) {
+                assignmentFilesLinks.addAll(row.select("a[href], a[onclick], button[onclick], input[onclick], span[onclick]"));
+            }
+        }
+        for (Element element : assignmentFilesLinks) {
+            HtmlDownloadCandidate candidate = extractCandidateFromClickable(element, pageUrl);
+            if (candidate != null) return candidate;
+        }
+
+        Element metaRefresh = doc.selectFirst("meta[http-equiv~=(?i)refresh]");
+        if (metaRefresh != null) {
+            String refreshContent = metaRefresh.attr("content");
+            if (refreshContent != null) {
+                Matcher m = Pattern.compile("url\\s*=\\s*([^;]+)", Pattern.CASE_INSENSITIVE).matcher(refreshContent);
+                if (m.find()) {
+                    String refreshUrl = m.group(1).trim().replaceAll("^['\"]|['\"]$", "");
+                    if (!refreshUrl.isBlank()) {
+                        String normalizedRefresh = normalizeUrl(refreshUrl, pageUrl);
+                        if (!normalizedRefresh.isBlank()) {
+                            return new HtmlDownloadCandidate(normalizedRefresh, null);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (Element element : doc.select("iframe[src], frame[src], embed[src], object[data]")) {
+            String raw = element.hasAttr("src") ? element.attr("src") : element.attr("data");
+            String normalized = normalizeUrl(raw, pageUrl);
+            if (!normalized.isBlank()) {
+                return new HtmlDownloadCandidate(normalized, null);
+            }
+        }
+
+        Elements clickableElements = doc.select("a[href], a[onclick], button[onclick], input[onclick], span[onclick]");
+        List<Element> prioritized = new ArrayList<>(clickableElements);
+        prioritized.sort((e1, e2) -> {
+            int score1 = looksLikeDownloadTrigger(e1) ? 1 : 0;
+            int score2 = looksLikeDownloadTrigger(e2) ? 1 : 0;
+            return Integer.compare(score2, score1); // descending
+        });
+
+        for (Element element : prioritized) {
+            if (looksLikeDownloadTrigger(element)) {
+                HtmlDownloadCandidate candidate = extractCandidateFromClickable(element, pageUrl);
+                if (candidate != null) {
+                    return candidate;
+                }
+            }
+        }
+
+        for (Element element : prioritized) {
+            HtmlDownloadCandidate candidate = extractCandidateFromClickable(element, pageUrl);
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    // ---------- Ported Downloader Methods ----------
+    public DownloadResult executeDownloadRequest(Request request) {
+        return executeDownloadRequest(request, 0);
+    }
+
+    public DownloadResult executeDownloadRequest(Request request, int depth) {
+        if (depth > 6) {
+            return new DownloadResult.Rejected("Download redirect chain is too long.");
+        }
+
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                return new DownloadResult.Rejected("Server rejected download (HTTP " + response.code() + ").");
+            }
+
+            ResponseBody responseBody = response.body();
+            if (responseBody == null) {
+                return new DownloadResult.Error("Empty server response.");
+            }
+            String mimeType = null;
+            if (responseBody.contentType() != null) {
+                String temp = responseBody.contentType().toString();
+                if (!temp.isBlank()) mimeType = temp;
+            }
+            String contentDisposition = response.header("Content-Disposition");
+            boolean hasAttachmentHeader = contentDisposition != null &&
+                    (contentDisposition.toLowerCase().contains("attachment") ||
+                     contentDisposition.toLowerCase().contains("filename"));
+            byte[] bytes = responseBody.bytes();
+            String finalUrl = response.request().url().toString();
+
+            if (finalUrl.toLowerCase().contains("login.aspx")) {
+                return new DownloadResult.Rejected("Session expired. Please sign in again.");
+            }
+
+            boolean isHtmlLike = ((mimeType != null && mimeType.toLowerCase().contains("text/html"))
+                    || looksLikeHtmlPayload(bytes)) && !hasAttachmentHeader;
+
+            if (isHtmlLike) {
+                String html = new String(bytes, StandardCharsets.UTF_8);
+                if (isLoginPage(finalUrl, html)) {
+                    return new DownloadResult.Rejected("Session expired. Please sign in again.");
+                }
+
+                String redirectUrl = extractRedirectUrlFromHtml(html);
+                if (redirectUrl != null && !redirectUrl.isBlank()) {
+                    String normalizedRedirect = normalizeUrl(redirectUrl, finalUrl);
+                    if (!normalizedRedirect.isBlank() && !normalizedRedirect.equalsIgnoreCase(finalUrl)) {
+                        Request followRequest = buildDownloadFollowRequest(normalizedRedirect, finalUrl);
+                        return executeDownloadRequest(followRequest, depth + 1);
+                    }
+                }
+
+                HtmlDownloadCandidate candidate = findDownloadCandidateInHtml(html, finalUrl);
+                if (candidate != null) {
+                    if (candidate.url() != null && !candidate.url().isBlank() && !candidate.url().equalsIgnoreCase(finalUrl)) {
+                        Request candidateRequest = buildDownloadFollowRequest(candidate.url(), finalUrl);
+                        return executeDownloadRequest(candidateRequest, depth + 1);
+                    }
+                    if (candidate.postBackInfo() != null) {
+                        Request postBackRequest = buildPostBackRequestFromPage(finalUrl, html, candidate.postBackInfo());
+                        if (postBackRequest != null) {
+                            return executeDownloadRequest(postBackRequest, depth + 1);
+                        }
+                    }
+                }
+
+                if (html.toLowerCase().contains("__viewstate") || html.toLowerCase().contains("courseportal")) {
+                    return new DownloadResult.Rejected("Portal did not return the assignment instruction file.");
+                }
+            }
+
+            String fileName = extractFileName(contentDisposition, finalUrl, mimeType);
+            return new DownloadResult.Success(bytes, fileName, mimeType != null ? mimeType : "application/octet-stream");
+        } catch (IOException e) {
+            return new DownloadResult.NetworkError();
+        } catch (Exception e) {
+            return new DownloadResult.Error(e.getMessage() != null ? e.getMessage() : "Download failed.");
+        }
+    }
+
+    public String extractRedirectUrlFromHtml(String html) {
+        if (html == null) return null;
+        List<Pattern> patterns = List.of(
+            Pattern.compile("window\\.location(?:\\.href)?\\s*=\\s*['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("location\\.replace\\(\\s*['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("window\\.open\\(\\s*['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("url\\s*=\\s*([^;\"'>]+)", Pattern.CASE_INSENSITIVE)
+        );
+        for (Pattern p : patterns) {
+            Matcher m = p.matcher(html);
+            if (m.find()) {
+                String val = m.group(1);
+                if (val != null) {
+                    val = val.trim().replaceAll("^['\"]|['\"]$", "");
+                    if (!val.isEmpty()) return val;
+                }
+            }
+        }
+        return null;
+    }
+
+    public DownloadResult downloadAssignmentViaPostBack(PostBackInfo info) {
+        String assignmentsUrl = BASE_URL + "/CoursePortal.aspx";
+        Request getRequest = new Request.Builder()
+                .url(assignmentsUrl)
+                .header("Referer", assignmentsUrl)
+                .header("User-Agent", USER_AGENT)
+                .build();
+
+        String finalUrl;
+        String html;
+        try (Response response = client.newCall(getRequest).execute()) {
+            if (!response.isSuccessful()) {
+                return new DownloadResult.Rejected("Server rejected download (HTTP " + response.code() + ").");
+            }
+            ResponseBody body = response.body();
+            if (body == null) {
+                return new DownloadResult.Error("Empty server response.");
+            }
+            finalUrl = response.request().url().toString();
+            html = body.string();
+        } catch (IOException e) {
+            return new DownloadResult.NetworkError();
+        }
+
+        boolean notAuthenticated = isLoginPage(finalUrl, html) || !hasSessionCookiesForHost(BASE_HOST);
+        if (notAuthenticated) {
+            return new DownloadResult.Rejected("Session expired. Please sign in again.");
+        }
+
+        Document doc = Jsoup.parse(html);
+        Element form = null;
+        for (Element f : doc.select("form")) {
+            if (f.selectFirst("input[name=__VIEWSTATE]") != null) {
+                form = f;
+                break;
+            }
+        }
+        if (form == null) {
+            form = doc.selectFirst("form");
+        }
+        if (form == null) {
+            return new DownloadResult.Error("Portal form not found.");
+        }
+
+        FormBody.Builder postBuilder = new FormBody.Builder();
+        for (Element hidden : form.select("input[type=hidden]")) {
+            String name = hidden.attr("name");
+            if (name.isBlank() || name.equals("__EVENTTARGET") || name.equals("__EVENTARGUMENT")) continue;
+            postBuilder.add(name, hidden.attr("value"));
+        }
+        postBuilder.add("__EVENTTARGET", info.target());
+        postBuilder.add("__EVENTARGUMENT", info.argument());
+
+        String formAction = form.attr("action");
+        String postUrl = "";
+        if (formAction.isBlank()) {
+            postUrl = assignmentsUrl;
+        } else if (formAction.toLowerCase().startsWith("http")) {
+            postUrl = formAction;
+        } else if (formAction.startsWith("/")) {
+            postUrl = BASE_URL + formAction;
+        } else {
+            postUrl = BASE_URL + "/" + formAction;
+        }
+
+        Request postRequest = new Request.Builder()
+                .url(postUrl)
+                .post(postBuilder.build())
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Referer", assignmentsUrl)
+                .header("Origin", BASE_URL)
+                .header("User-Agent", USER_AGENT)
+                .build();
+
+        return executeDownloadRequest(postRequest);
+    }
+
+    public DownloadResult downloadAssignmentViaPostBack(PostBackLink postBackLink) {
+        String sourcePageUrl = postBackLink.sourcePageUrl();
+        if (sourcePageUrl == null || sourcePageUrl.isBlank()) {
+            sourcePageUrl = BASE_URL + "/CoursePortal.aspx";
+        }
+        Request getRequest = new Request.Builder()
+                .url(sourcePageUrl)
+                .header("Referer", sourcePageUrl)
+                .header("User-Agent", USER_AGENT)
+                .build();
+
+        String finalUrl;
+        String html;
+        try (Response response = client.newCall(getRequest).execute()) {
+            if (!response.isSuccessful()) {
+                return new DownloadResult.Rejected("Server rejected download (HTTP " + response.code() + ").");
+            }
+            ResponseBody body = response.body();
+            if (body == null) {
+                return new DownloadResult.Error("Empty server response.");
+            }
+            finalUrl = response.request().url().toString();
+            html = body.string();
+        } catch (IOException e) {
+            return new DownloadResult.NetworkError();
+        }
+
+        boolean notAuthenticated = isLoginPage(finalUrl, html) || !hasSessionCookiesForHost(BASE_HOST);
+        if (notAuthenticated) {
+            return new DownloadResult.Rejected("Session expired. Please sign in again.");
+        }
+
+        Request postRequest = buildPostBackRequestFromPage(finalUrl, html, postBackLink.info());
+        if (postRequest == null) {
+            return new DownloadResult.Error("Portal form not found.");
+        }
+
+        return executeDownloadRequest(postRequest);
+    }
+
+    public DownloadResult downloadAssignment(String downloadUrl) {
+        try {
+            if (downloadUrl == null || downloadUrl.isBlank()) {
+                return new DownloadResult.Rejected("Download link is unavailable.");
+            }
+
+            if (isPostBackDownloadLink(downloadUrl)) {
+                PostBackLink postBackLink = extractPostBackLinkFromLink(downloadUrl);
+                if (postBackLink == null) {
+                    return new DownloadResult.Rejected("Download link is invalid.");
+                }
+                return downloadAssignmentViaPostBack(postBackLink);
+            }
+
+            String normalizedUrl = normalizeUrl(downloadUrl);
+            if (normalizedUrl.isBlank()) {
+                return new DownloadResult.Rejected("Download link is invalid.");
+            }
+
+            Request request = new Request.Builder()
+                    .url(normalizedUrl)
+                    .header("Referer", BASE_URL + "/CoursePortal.aspx")
+                    .header("User-Agent", USER_AGENT)
+                    .build();
+
+            return executeDownloadRequest(request);
+        } catch (Exception e) {
+            logE("PortalAuth", "Download error: " + e.getMessage(), e);
+            return new DownloadResult.Error(e.getMessage() != null ? e.getMessage() : "Download failed.");
+        }
+    }
+
+    public String normalizeUrl(String href) {
+        return normalizeUrl(href, BASE_URL);
+    }
+
+    public String normalizeUrl(String href, String resolveBaseUrl) {
+        if (href == null || href.isBlank()) return "";
+        String trimmed = href.trim();
+        if (trimmed.isEmpty() || trimmed.equals("#") || trimmed.toLowerCase().startsWith("javascript")) return "";
+        if (trimmed.toLowerCase().startsWith("http")) return trimmed;
+        try {
+            HttpUrl base = HttpUrl.parse(resolveBaseUrl);
+            if (base != null) {
+                HttpUrl resolved = base.resolve(trimmed);
+                if (resolved != null) {
+                    return resolved.toString();
+                }
+            }
+        } catch (Exception ignored) {}
+        return "";
+    }
+
+    // ---------- Ported Uploader Methods ----------
+    public UploadResult uploadAssignment(String submitPageUrl, File file) {
+        try {
+            logD("PortalAuth", "=== UPLOAD START ===");
+            logD("PortalAuth", "Submit URL: " + submitPageUrl);
+            logD("PortalAuth", "File: " + file.getName() + " (" + file.length() + " bytes)");
+
+            if (submitPageUrl != null && isPostBackDownloadLink(submitPageUrl)) {
+                PostBackLink postBackLink = extractPostBackLinkFromLink(submitPageUrl);
+                if (postBackLink == null) {
+                    return new UploadResult.Rejected("Upload link is invalid.");
+                }
+                return uploadAssignmentViaPostBack(postBackLink, file);
+            }
+
+            if (submitPageUrl == null || submitPageUrl.isBlank()) {
+                logE("PortalAuth", "Submit URL is empty or blank!");
+                logD("PortalAuth", "This might be a re-upload of an already-submitted assignment");
+                logD("PortalAuth", "Trying to fetch CoursePortal page instead...");
+
+                String altUrl = BASE_URL + "/CoursePortal.aspx";
+                logD("PortalAuth", "Using alternate URL: " + altUrl);
+
+                Request getRequest = new Request.Builder()
+                        .url(altUrl)
+                        .header("Referer", BASE_URL + "/CoursePortal.aspx")
+                        .header("User-Agent", USER_AGENT)
+                        .build();
+
+                String pageHtml;
+                try (Response response = client.newCall(getRequest).execute()) {
+                    if (!response.isSuccessful()) {
+                        logE("PortalAuth", "Upload prefetch HTTP " + response.code());
+                        return new UploadResult.Rejected("Server rejected request (HTTP " + response.code() + ").");
+                    }
+                    ResponseBody body = response.body();
+                    pageHtml = body != null ? body.string() : "";
+                }
+
+                logD("PortalAuth", "Page HTML length: " + pageHtml.length());
+
+                Document doc = Jsoup.parse(pageHtml);
+                Element form = doc.select("form").first();
+                if (form == null) {
+                    logE("PortalAuth", "Form not found on alternate page");
+                    return new UploadResult.Rejected("Upload form not found.");
+                }
+
+                logD("PortalAuth", "Using CoursePortal form for re-upload");
+                return uploadWithForm(form, file, pageHtml);
+            }
+
+            logD("PortalAuth", "Step 1: Fetching submission page...");
+            Request getRequest = new Request.Builder()
+                    .url(submitPageUrl)
+                    .header("Referer", BASE_URL + "/CoursePortal.aspx")
+                    .header("User-Agent", USER_AGENT)
+                    .build();
+
+            String pageHtml;
+            try (Response response = client.newCall(getRequest).execute()) {
+                if (!response.isSuccessful()) {
+                    logE("PortalAuth", "Upload page fetch HTTP " + response.code());
+                    return new UploadResult.Rejected("Server rejected request (HTTP " + response.code() + ").");
+                }
+                ResponseBody body = response.body();
+                pageHtml = body != null ? body.string() : "";
+            }
+
+            logD("PortalAuth", "Page HTML length: " + pageHtml.length());
+
+            Document doc = Jsoup.parse(pageHtml);
+            Element form = doc.select("form").first();
+            if (form == null) {
+                logE("PortalAuth", "Form not found");
+                return new UploadResult.Rejected("Upload form not found.");
+            }
+
+            logD("PortalAuth", "Form found, action: " + form.attr("action") + ", method: " + form.attr("method"));
+
+            logD("PortalAuth", "=== PAGE CONTENT ===");
+            String allText = doc.body() != null ? doc.body().text() : "";
+            logD("PortalAuth", "Page body text length: " + allText.length());
+
+            Elements labels = doc.select("label");
+            if (!labels.isEmpty()) {
+                logD("PortalAuth", "Found " + labels.size() + " labels on page:");
+                for (Element label : labels.subList(0, Math.min(10, labels.size()))) {
+                    logD("PortalAuth", "  Label: " + label.text());
+                }
+            }
+
+            Elements textareas = doc.select("textarea");
+            if (!textareas.isEmpty()) {
+                logD("PortalAuth", "Found " + textareas.size() + " textareas");
+                for (Element ta : textareas) {
+                    logD("PortalAuth", "  Textarea: name='" + ta.attr("name") + "', id='" + ta.attr("id") + "'");
+                }
+            }
+
+            Elements visibleInputs = doc.select("input[type=text], input[type=password], input[type=email]");
+            if (!visibleInputs.isEmpty()) {
+                logD("PortalAuth", "Found " + visibleInputs.size() + " visible input fields");
+                for (Element inp : visibleInputs) {
+                    logD("PortalAuth", "  Input: name='" + inp.attr("name") + "', placeholder='" + inp.attr("placeholder") + "'");
+                }
+            }
+
+            return uploadWithForm(form, file, pageHtml);
+        } catch (IOException e) {
+            return new UploadResult.NetworkError();
+        } catch (Exception e) {
+            logE("PortalAuth", "Upload error: " + e.getMessage(), e);
+            return new UploadResult.Error(e.getMessage() != null ? e.getMessage() : "Upload failed.");
+        }
+    }
+
+    public UploadResult uploadAssignmentViaPostBack(PostBackLink postBackLink, File file) {
+        String sourcePageUrl = postBackLink.sourcePageUrl();
+        if (sourcePageUrl == null || sourcePageUrl.isBlank()) {
+            sourcePageUrl = BASE_URL + "/CoursePortal.aspx";
+        }
+        Request getRequest = new Request.Builder()
+                .url(sourcePageUrl)
+                .header("Referer", sourcePageUrl)
+                .header("User-Agent", USER_AGENT)
+                .build();
+
+        String finalUrl;
+        String html;
+        try (Response response = client.newCall(getRequest).execute()) {
+            if (!response.isSuccessful()) {
+                return new UploadResult.Rejected("Server rejected request (HTTP " + response.code() + ").");
+            }
+            ResponseBody body = response.body();
+            if (body == null) {
+                return new UploadResult.Error("Empty server response.");
+            }
+            finalUrl = response.request().url().toString();
+            html = body.string();
+        } catch (IOException e) {
+            return new UploadResult.NetworkError();
+        }
+
+        boolean notAuthenticated = isLoginPage(finalUrl, html) || !hasSessionCookiesForHost(BASE_HOST);
+        if (notAuthenticated) {
+            return new UploadResult.Rejected("Session expired. Please sign in again.");
+        }
+
+        Request postRequest = buildPostBackRequestFromPage(finalUrl, html, postBackLink.info());
+        if (postRequest == null) {
+            return new UploadResult.Rejected("Upload form not found.");
+        }
+
+        String uploadPageUrl;
+        String uploadPageHtml;
+        try (Response response = client.newCall(postRequest).execute()) {
+            if (!response.isSuccessful()) {
+                return new UploadResult.Rejected("Server rejected request (HTTP " + response.code() + ").");
+            }
+            ResponseBody body = response.body();
+            if (body == null) {
+                return new UploadResult.Error("Empty server response.");
+            }
+            uploadPageUrl = response.request().url().toString();
+            uploadPageHtml = body.string();
+        } catch (IOException e) {
+            return new UploadResult.NetworkError();
+        }
+
+        Document uploadDoc = Jsoup.parse(uploadPageHtml, uploadPageUrl);
+        Element uploadForm = uploadDoc.select("form").stream().filter(f -> f.selectFirst("input[type=file]") != null).findFirst().orElse(null);
+        if (uploadForm == null) {
+            uploadForm = uploadDoc.select("form").stream().filter(f -> f.selectFirst("input[name=__VIEWSTATE]") != null).findFirst().orElse(null);
+        }
+        if (uploadForm == null) {
+            uploadForm = uploadDoc.selectFirst("form");
+        }
+        if (uploadForm == null) {
+            return new UploadResult.Rejected("Upload form not found.");
+        }
+
+        return uploadWithForm(uploadForm, file, uploadPageHtml);
+    }
+
+    public UploadResult uploadWithForm(Element form, File file, String pageHtml) {
+        try {
+            logD("PortalAuth", "Step 2: Processing form for upload...");
+
+            Document doc = Jsoup.parse(pageHtml);
+
+            Element targetForm = form;
+            Element fileInput = form.select("input[type=file]").first();
+            if (fileInput == null) {
+                logD("PortalAuth", "File input not in main form, searching all forms on page...");
+                Elements allForms = doc.select("form");
+                logD("PortalAuth", "Found " + allForms.size() + " total forms on page");
+
+                for (Element f : allForms) {
+                    Element fi = f.select("input[type=file]").first();
+                    if (fi != null) {
+                        logD("PortalAuth", "Found file input in a different form!");
+                        targetForm = f;
+                        break;
+                    }
+                }
+            }
+
+            String viewState = targetForm.select("input[name='__VIEWSTATE']").attr("value");
+            if (viewState == null) viewState = "";
+            String eventValidation = targetForm.select("input[name='__EVENTVALIDATION']").attr("value");
+            if (eventValidation == null) eventValidation = "";
+            String viewStateGenerator = targetForm.select("input[name='__VIEWSTATEGENERATOR']").attr("value");
+            if (viewStateGenerator == null) viewStateGenerator = "";
+
+            logD("PortalAuth", "ViewState found: " + !viewState.isEmpty());
+            logD("PortalAuth", "EventValidation found: " + !eventValidation.isEmpty());
+
+            Elements hiddenFields = targetForm.select("input[type=hidden]");
+            logD("PortalAuth", "Total hidden fields in form: " + hiddenFields.size());
+
+            logD("PortalAuth", "Step 3: Building form with file...");
+            MultipartBody.Builder formBuilder = new MultipartBody.Builder()
+                    .setType(MultipartBody.FORM);
+
+            logD("PortalAuth", "=== ALL FORM FIELDS ===");
+            logD("PortalAuth", "Form tag attributes: action='" + targetForm.attr("action") + "', method='" + targetForm.attr("method") + "'");
+            Elements allInputs = targetForm.select("input");
+            logD("PortalAuth", "Total input fields: " + allInputs.size());
+            for (Element input : allInputs) {
+                String type = input.attr("type");
+                String name = input.attr("name");
+                String val = input.attr("value");
+                if (val.length() > 50) val = val.substring(0, 50);
+                logD("PortalAuth", "  " + type + ": " + name + " = " + val);
+            }
+
+            String defaultEventTarget = "ctl00$DataContent$btnAddFile";
+            Elements submitButtons = targetForm.select("input[type=button], input[type=submit], button[type=button], button[type=submit], button[name]");
+            logD("PortalAuth", "Found " + submitButtons.size() + " submit buttons");
+            for (Element btn : submitButtons) {
+                logD("PortalAuth", "  Button: name='" + btn.attr("name") + "', value='" + btn.attr("value") + "', text='" + btn.text() + "'");
+            }
+
+            Element preferredButton = null;
+            int maxScore = -1;
+            for (Element btn : submitButtons) {
+                String fingerprint = (btn.attr("name") + " " +
+                        btn.attr("id") + " " +
+                        btn.attr("value") + " " +
+                        btn.text() + " " +
+                        btn.className()).toLowerCase();
+                int score = 0;
+                if (fingerprint.contains("addfile") || fingerprint.contains("updatefile")) score = 6;
+                else if (fingerprint.contains("upload")) score = 5;
+                else if (fingerprint.contains("change")) score = 4;
+                else if (fingerprint.contains("submit")) score = 3;
+                else if (fingerprint.contains("assignment") || fingerprint.contains("attach")) score = 2;
+
+                if (score > maxScore) {
+                    maxScore = score;
+                    preferredButton = btn;
+                }
+            }
+
+            String preferredButtonName = null;
+            if (preferredButton != null) {
+                String nameAttr = preferredButton.attr("name").trim();
+                if (!nameAttr.isEmpty()) {
+                    preferredButtonName = nameAttr;
+                } else {
+                    String idAttr = preferredButton.attr("id").trim();
+                    if (!idAttr.isEmpty()) {
+                        preferredButtonName = idAttr.replace("_", "$");
+                    }
+                }
+            }
+
+            String eventTarget = preferredButtonName != null ? preferredButtonName : defaultEventTarget;
+            logD("PortalAuth", "Using __EVENTTARGET: " + eventTarget);
+
+            formBuilder.addFormDataPart("__EVENTTARGET", eventTarget);
+            formBuilder.addFormDataPart("__EVENTARGUMENT", "");
+            formBuilder.addFormDataPart("__VIEWSTATE", viewState);
+            formBuilder.addFormDataPart("__EVENTVALIDATION", eventValidation);
+            if (!viewStateGenerator.isEmpty()) {
+                formBuilder.addFormDataPart("__VIEWSTATEGENERATOR", viewStateGenerator);
+            }
+
+            if (preferredButtonName != null && preferredButton != null) {
+                String preferredButtonValue = preferredButton.attr("value").trim();
+                if (preferredButtonValue.isEmpty()) {
+                    preferredButtonValue = preferredButton.text().trim();
+                }
+                if (!preferredButtonValue.isEmpty()) {
+                    logD("PortalAuth", "Adding trigger button field: " + preferredButtonName + " = " + preferredButtonValue);
+                    formBuilder.addFormDataPart(preferredButtonName, preferredButtonValue);
+                }
+            }
+
+            for (Element input : targetForm.select("input[type=hidden]")) {
+                String name = input.attr("name");
+                String value = input.attr("value");
+                logD("PortalAuth", "  Hidden: " + name + " = " + (value.length() > 100 ? value.substring(0, 100) : value));
+                if (!name.isEmpty() &&
+                        !name.startsWith("__VIEWSTATE") &&
+                        !name.startsWith("__EVENTVALIDATION") &&
+                        !name.startsWith("__EVENTTARGET") &&
+                        !name.startsWith("__EVENTARGUMENT")) {
+                    formBuilder.addFormDataPart(name, value);
+                }
+            }
+
+            Elements fileInputs = targetForm.select("input[type=file]");
+            logD("PortalAuth", "Found " + fileInputs.size() + " file input fields:");
+            String fileInputName = "ctl00$DataContent$fileAssignment1";
+            for (Element input : fileInputs) {
+                String name = input.attr("name");
+                logD("PortalAuth", "  File input name: '" + name + "'");
+                if (!name.isEmpty()) {
+                    fileInputName = name;
+                }
+            }
+
+            logD("PortalAuth", "Adding file: " + file.getName());
+            logD("PortalAuth", "Using file input name: " + fileInputName);
+            RequestBody fileBody = RequestBody.create(file, MediaType.parse("application/octet-stream"));
+            formBuilder.addFormDataPart(fileInputName, file.getName(), fileBody);
+
+            logD("PortalAuth", "Step 4: Submitting form with file...");
+            MultipartBody formBody = formBuilder.build();
+            logD("PortalAuth", "Form has " + formBody.parts().size() + " parts");
+
+            String formAction = targetForm.attr("action");
+            String postUrl = "";
+            if (formAction.isBlank()) {
+                postUrl = BASE_URL + "/CoursePortal.aspx";
+            } else if (formAction.toLowerCase().startsWith("http")) {
+                postUrl = formAction;
+            } else if (formAction.startsWith("/")) {
+                postUrl = BASE_URL + formAction;
+            } else {
+                postUrl = BASE_URL + "/" + formAction;
+            }
+
+            logD("PortalAuth", "Posting to: " + postUrl);
+
+            Request postRequest = new Request.Builder()
+                    .url(postUrl)
+                    .post(formBody)
+                    .header("Referer", BASE_URL + "/CoursePortal.aspx")
+                    .header("Origin", BASE_URL)
+                    .header("User-Agent", USER_AGENT)
+                    .build();
+
+            String responseUrl;
+            String responseHtml;
+            try (Response response = client.newCall(postRequest).execute()) {
+                if (!response.isSuccessful()) {
+                    logE("PortalAuth", "Upload submit HTTP " + response.code());
+                    return new UploadResult.Rejected("Server rejected request (HTTP " + response.code() + ").");
+                }
+                ResponseBody body = response.body();
+                responseUrl = response.request().url().toString();
+                responseHtml = body != null ? body.string() : "";
+            }
+
+            logD("PortalAuth", "Response URL: " + responseUrl);
+            logD("PortalAuth", "Response HTML length: " + responseHtml.length());
+
+            if (isUploadSizeErrorRedirect(responseUrl, responseHtml)) {
+                logD("PortalAuth", "Upload failed: redirected to portal upload error page");
+                return new UploadResult.Rejected("Upload rejected: file too large.");
+            }
+
+            if (responseHtml.contains("</form>")) {
+                int formEndIdx = responseHtml.indexOf("</form>");
+                logD("PortalAuth", "Form snippet (last 500 chars): " +
+                        responseHtml.substring(Math.max(0, formEndIdx - 500), formEndIdx));
+            }
+
+            if (responseHtml.toLowerCase().contains("aspnethidden")) {
+                logD("PortalAuth", "Found aspNetHidden - ASP.NET validation error");
+            }
+            if (responseHtml.toLowerCase().contains("__viewstate")) {
+                logD("PortalAuth", "Response contains __VIEWSTATE - page reloaded");
+            }
+
+            Document doc2 = Jsoup.parse(responseHtml);
+            List<String> visibleValidationMessages = new ArrayList<>();
+
+            // Helper to check visibility
+            class VisibilityChecker {
+                boolean isLikelyVisible(Element el) {
+                    Element node = el;
+                    while (node != null) {
+                        String style = node.attr("style").toLowerCase();
+                        String className = node.className().toLowerCase();
+                        if (node.hasAttr("hidden")) return false;
+                        if (node.attr("aria-hidden").equalsIgnoreCase("true")) return false;
+                        if (style.contains("display:none") || style.contains("visibility:hidden")) return false;
+                        if (className.contains("d-none") || className.contains("invisible")) return false;
+                        node = node.parent();
+                    }
+                    return true;
+                }
+            }
+            VisibilityChecker checker = new VisibilityChecker();
+
+            Elements validatorSpans = doc2.select("[id*='Validator']");
+            if (!validatorSpans.isEmpty()) {
+                logD("PortalAuth", "Found " + validatorSpans.size() + " validator elements");
+                for (Element elem : validatorSpans) {
+                    if (!checker.isLikelyVisible(elem)) continue;
+                    String text = elem.text();
+                    if (!text.isEmpty()) {
+                        logD("PortalAuth", "  Validator text: " + text);
+                        visibleValidationMessages.add(text);
+                    }
+                }
+            }
+
+            Elements errorDivs = doc2.select(".error, [id*='error'], .notification");
+            if (!errorDivs.isEmpty()) {
+                logD("PortalAuth", "Found " + errorDivs.size() + " error divs");
+                for (Element elem : errorDivs) {
+                    if (!checker.isLikelyVisible(elem)) continue;
+                    String text = elem.text();
+                    if (!text.isEmpty()) {
+                        logD("PortalAuth", "  Error div: " + text);
+                        visibleValidationMessages.add(text);
+                    }
+                }
+            }
+
+            Elements summaryControls = doc2.select("[id*='ValidationSummary'], [id*='Summary']");
+            for (Element elem : summaryControls) {
+                if (!checker.isLikelyVisible(elem)) continue;
+                String text = elem.text();
+                if (!text.isEmpty()) {
+                    logD("PortalAuth", "  Summary control: " + text);
+                    visibleValidationMessages.add(text);
+                }
+            }
+
+            boolean hasFileInput = responseHtml.toLowerCase().contains("fileassignment1");
+            boolean hasSuccessMessage = responseHtml.toLowerCase().contains("file once uploaded cannot be changed") ||
+                    responseHtml.toLowerCase().contains("successfully uploaded") ||
+                    responseHtml.toLowerCase().contains("submission successful") ||
+                    responseHtml.toLowerCase().contains("file uploaded") ||
+                    responseHtml.toLowerCase().contains("your file has been submitted") ||
+                    responseHtml.toLowerCase().contains("assignment file updated succefully") ||
+                    responseHtml.toLowerCase().contains("assignment file updated successfully");
+
+            boolean hasViewstate = responseHtml.toLowerCase().contains("__viewstate");
+            boolean hasForm = responseHtml.toLowerCase().contains("<form");
+
+            List<String> cleanedValidationMessages = new ArrayList<>();
+            for (String message : visibleValidationMessages) {
+                String cleaned = message.replaceAll("\\s+", " ").trim();
+                if (!cleaned.isEmpty()) {
+                    cleanedValidationMessages.add(cleaned);
+                }
+            }
+
+            String normalizedValidationText = String.join(" | ", cleanedValidationMessages).toLowerCase().replaceAll("\\s+", " ");
+            logD("PortalAuth", "Visible validation text: " + normalizedValidationText);
+
+            String portalSizeMessage = null;
+            for (String message : cleanedValidationMessages) {
+                String normalized = message.toLowerCase();
+                boolean hasSizeToken = normalized.contains("size") || normalized.contains("mb") || normalized.contains("kb");
+                boolean hasLimitToken = normalized.contains("max") ||
+                        normalized.contains("maximum") ||
+                        normalized.contains("limit") ||
+                        normalized.contains("exceed") ||
+                        normalized.contains("less than");
+                if (hasSizeToken && hasLimitToken) {
+                    portalSizeMessage = message;
+                    break;
+                }
+            }
+
+            String portalValidationErrorMessage = null;
+            for (String message : cleanedValidationMessages) {
+                String normalized = message.toLowerCase();
+                if (normalized.contains("required") ||
+                        normalized.contains("invalid") ||
+                        normalized.contains("not allowed") ||
+                        normalized.contains("closed") ||
+                        normalized.contains("too large") ||
+                        normalized.contains("maximum") ||
+                        normalized.contains("exceed")) {
+                    portalValidationErrorMessage = message;
+                    break;
+                }
+            }
+
+            boolean hasFormatError = normalizedValidationText.contains("only .zip,.rar,.doc,.docx and .pdf allowed") ||
+                    normalizedValidationText.contains("format is not allowed") ||
+                    normalizedValidationText.contains("file format is not allowed");
+            boolean hasMissingFileError = normalizedValidationText.contains("required") &&
+                    (normalizedValidationText.contains("fileuploadvalidator") || normalizedValidationText.contains("file"));
+            boolean hasInvalidFileError = normalizedValidationText.contains("invalid file");
+            boolean hasSizeError = (normalizedValidationText.contains("size") &&
+                    (normalizedValidationText.contains("maximum") ||
+                            normalizedValidationText.contains("max") ||
+                            normalizedValidationText.contains("limit") ||
+                            normalizedValidationText.contains("exceed") ||
+                            normalizedValidationText.contains("less than"))) ||
+                    portalSizeMessage != null;
+            boolean hasClosedError = normalizedValidationText.contains("closed") && normalizedValidationText.contains("assignment");
+            boolean hasGenericPortalError = portalValidationErrorMessage != null;
+
+            boolean hasError = hasFormatError ||
+                    hasMissingFileError ||
+                    hasInvalidFileError ||
+                    hasSizeError ||
+                    hasClosedError ||
+                    hasGenericPortalError;
+
+            String rejectionReason = "Upload rejected by server.";
+            if (hasFormatError) {
+                rejectionReason = "Upload rejected: only .zip, .rar, .doc, .docx, .pdf are allowed.";
+            } else if (hasMissingFileError) {
+                rejectionReason = "Upload rejected: file missing or form not accepted.";
+            } else if (hasInvalidFileError) {
+                rejectionReason = "Upload rejected: invalid file.";
+            } else if (hasSizeError) {
+                rejectionReason = portalSizeMessage != null ? "Upload rejected: " + portalSizeMessage : "Upload rejected: file too large.";
+            } else if (hasClosedError) {
+                rejectionReason = "Upload rejected: assignment is closed.";
+            } else if (hasGenericPortalError) {
+                rejectionReason = "Upload rejected: " + portalValidationErrorMessage;
+            }
+
+            logD("PortalAuth", "Success indicators:");
+            logD("PortalAuth", "  Has file input field: " + hasFileInput);
+            logD("PortalAuth", "  Has success message: " + hasSuccessMessage);
+            logD("PortalAuth", "  Has viewstate: " + hasViewstate);
+            logD("PortalAuth", "  Has form: " + hasForm);
+            logD("PortalAuth", "  Has error: " + hasError);
+            logD("PortalAuth", "  Response length: " + responseHtml.length());
+
+            String successProof = null;
+            if (hasError) {
+                logD("PortalAuth", "Failed: Found error message");
+            } else if (hasSuccessMessage) {
+                logD("PortalAuth", "Success: Found success message");
+                successProof = "Server returned explicit success confirmation.";
+            } else if (!hasFileInput && hasViewstate && hasForm) {
+                logD("PortalAuth", "Success: File input disappeared and page reloaded");
+                successProof = "Server reloaded submission page and removed file input after submit.";
+            } else if (hasViewstate && hasForm && responseHtml.length() > 5000) {
+                logD("PortalAuth", "Success: Valid page response (" + responseHtml.length() + " bytes)");
+                successProof = "Server accepted multipart form and returned full portal response.";
+            } else if (responseUrl.toLowerCase().contains("courseportal")) {
+                logD("PortalAuth", "Success: Redirected to CoursePortal");
+                successProof = "Server redirected back to CoursePortal after submission.";
+            }
+
+            boolean isSuccess = successProof != null;
+            logD("PortalAuth", "Upload result: " + (isSuccess ? "SUCCESS" : "FAILED"));
+            logD("PortalAuth", "=== UPLOAD END ===");
+
+            if (isSuccess) {
+                return new UploadResult.Success();
+            } else {
+                return new UploadResult.Rejected(rejectionReason);
+            }
+        } catch (Exception e) {
+            logE("PortalAuth", "Upload error: " + e.getMessage(), e);
+            if (e instanceof IOException) {
+                return new UploadResult.NetworkError();
+            } else {
+                return new UploadResult.Error(e.getMessage() != null ? e.getMessage() : "Upload failed.");
+            }
+        }
+    }
+
+    public boolean isUploadSizeErrorRedirect(String responseUrl, String responseHtml) {
+        try {
+            HttpUrl parsed = HttpUrl.parse(responseUrl);
+            if (parsed == null) return false;
+            String path = parsed.encodedPath().toLowerCase();
+            String aspxErrorPath = parsed.queryParameter("aspxerrorpath");
+            if (aspxErrorPath == null) aspxErrorPath = "";
+            aspxErrorPath = aspxErrorPath.toLowerCase();
+            String normalizedUrl = responseUrl.toLowerCase();
+            String normalizedHtml = responseHtml.toLowerCase();
+
+            boolean isPortalUploadErrorPath = (
+                (path.endsWith("/error.html") || normalizedUrl.contains("/error.html")) &&
+                    (aspxErrorPath.contains("courseportalsubmitassignment.aspx") ||
+                        normalizedUrl.contains("aspxerrorpath=%2fcourseportalsubmitassignment.aspx") ||
+                        normalizedUrl.contains("aspxerrorpath=/courseportalsubmitassignment.aspx"))
+            );
+
+            if (isPortalUploadErrorPath) return true;
+
+            boolean hasPortalSizeMessage = normalizedHtml.contains("maximum request length exceeded") ||
+                normalizedHtml.contains("request entity too large") ||
+                (normalizedHtml.contains("file") && normalizedHtml.contains("too large"));
+
+            return hasPortalSizeMessage;
+        } catch (Exception ignored) {}
+        return false;
+    }
 }
+

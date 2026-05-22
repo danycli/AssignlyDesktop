@@ -193,10 +193,11 @@ public class AppContext {
         Button courses = navBtn("Courses", "courses");
         
         Button portal = navBtn("Course Portal", "portal");
+        Button examCoupon = navBtn("Exam Entry Coupon", "examcoupon");
 
         Button timetable = navBtn("Timetable", "timetable");
         Button fee = navBtn("Fee", "fee");
-        Button graduate = navBtn("Graduate Progress", "graduate");
+        Button result = navBtn("Result", "result");
         Button dateSheet = navBtn("Date Sheet", "datesheet");
         Button settings = navBtn("Settings", "settings");
 
@@ -217,7 +218,7 @@ public class AppContext {
             showLoginScreen();
         });
 
-        sb.getChildren().addAll(brandBox, dashboard, courses, portal, timetable, fee, graduate,
+        sb.getChildren().addAll(brandBox, dashboard, courses, portal, examCoupon, timetable, fee, result,
                 dateSheet, new Separator(), settings, spacer, userLabel, logout);
         return sb;
     }
@@ -253,9 +254,10 @@ public class AppContext {
             case "dashboard" -> contentArea.getChildren().add(new DashboardTabView(this).getRoot());
             case "courses" -> contentArea.getChildren().add(new CoursesTabView(this).getRoot());
             case "portal" -> contentArea.getChildren().add(new CoursePortalTabView(this).getRoot());
-            case "timetable" -> contentArea.getChildren().add(new WebPortalTabView(this, "Timetable.aspx", "Timetable").getRoot());
-            case "fee" -> contentArea.getChildren().add(new WebPortalTabView(this, "FeeInstallment.aspx", "Fee").getRoot());
-            case "graduate" -> contentArea.getChildren().add(new WebPortalTabView(this, "GraduateProgress.aspx", "Graduate Progress").getRoot());
+            case "timetable" -> contentArea.getChildren().add(new TimetableTabView(this).getRoot());
+            case "examcoupon" -> contentArea.getChildren().add(new ExamCouponTabView(this).getRoot());
+            case "fee" -> contentArea.getChildren().add(new FeeTabView(this).getRoot());
+            case "result" -> contentArea.getChildren().add(new ResultTabView(this).getRoot());
             case "datesheet" -> contentArea.getChildren().add(new DateSheetTabView(this).getRoot());
             case "settings" -> contentArea.getChildren().add(new SettingsTabView(this).getRoot());
         }
