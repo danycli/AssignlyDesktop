@@ -92,6 +92,26 @@ public class DataCacheService {
         }
     }
 
+    public void cacheHtml(String url, String html) {
+        try (Connection connection = databaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement("""
+                 INSERT INTO academic_cache (category, value, captured_at)
+                 VALUES (?, ?, ?)
+                 ON CONFLICT(category) DO UPDATE SET value = excluded.value, captured_at = excluded.captured_at
+                 """)) {
+            statement.setString(1, "html_" + url);
+            statement.setString(2, html);
+            statement.setString(3, LocalDateTime.now().toString());
+            statement.executeUpdate();
+        } catch (SQLException ex) {
+            System.err.println("Failed to cache HTML for " + url);
+        }
+    }
+
+    public Optional<String> getCachedHtml(String url) {
+        return getAcademicValue("html_" + url);
+    }
+
     public void saveSnapshot(PortalSnapshot snapshot) {
         try (Connection connection = databaseManager.getConnection()) {
             connection.setAutoCommit(false);

@@ -74,6 +74,16 @@ public class PortalRepository {
             Map<String, Double> attendanceOverall   // courseName -> percentage
     ) {}
 
+    public record GpaHistoryData(
+            String semesterTitle,
+            double sgpa,
+            double cgpa
+    ) {}
+
+    // ---------- Added for Settings Sub-Tabs ----------
+    public record ProfileInfo(String cellNetwork, String cellNumber, String email) {}
+    public record LoginHistoryEntry(String no, String time, String date, String ip) {}
+
 
     // ---------- Constants ----------
     private static final String BASE_URL = "https://sis.cuiatd.edu.pk";
@@ -320,7 +330,11 @@ public class PortalRepository {
     public DashboardData fetchDashboard() {
         String html = fetchPageHtml("Dashboard.aspx");
         if (html == null) return null;
+        return parseDashboard(html);
+    }
 
+    public DashboardData parseDashboard(String html) {
+        if (html == null || html.isBlank()) return null;
         Document doc = Jsoup.parse(html, BASE_URL + "/Dashboard.aspx");
 
         // 1. Parse student info table (key-value pairs from the top table)
@@ -383,6 +397,58 @@ public class PortalRepository {
         return new DashboardData(photoUrl, info, attendance);
     }
 
+    public List<GpaHistoryData> parseGpaHistory(String html) {
+        List<GpaHistoryData> history = new ArrayList<>();
+        if (html == null || html.isBlank()) return history;
+        Document doc = Jsoup.parse(html);
+        
+        for (Element table : doc.select("table")) {
+            Elements rows = table.select("tr");
+            if (rows.size() < 2) continue;
+            
+            // Try to find SGPA and CGPA in this table (usually at the bottom)
+            double sgpa = -1;
+            double cgpa = -1;
+            String semesterTitle = "Semester";
+            
+            // Look for title above table
+            Element prev = table.previousElementSibling();
+            while (prev != null) {
+                String txt = prev.text().trim();
+                if (!txt.isEmpty()) {
+                    semesterTitle = txt;
+                    break;
+                }
+                prev = prev.previousElementSibling();
+            }
+
+            for (Element row : rows) {
+                String rowText = row.text().toUpperCase();
+                // Simple regex to find SGPA and CGPA numbers in the row
+                if (rowText.contains("SGPA") || rowText.contains("CGPA")) {
+                    Matcher mSgpa = Pattern.compile("SGPA\\s*(?::|\\-|=)?\\s*([0-9]+\\.[0-9]+)").matcher(rowText);
+                    if (mSgpa.find()) {
+                        try { sgpa = Double.parseDouble(mSgpa.group(1)); } catch (Exception ignored) {}
+                    }
+                    
+                    Matcher mCgpa = Pattern.compile("CGPA\\s*(?::|\\-|=)?\\s*([0-9]+\\.[0-9]+)").matcher(rowText);
+                    if (mCgpa.find()) {
+                        try { cgpa = Double.parseDouble(mCgpa.group(1)); } catch (Exception ignored) {}
+                    }
+                }
+            }
+            
+            if (sgpa != -1 && cgpa != -1) {
+                history.add(new GpaHistoryData(semesterTitle, sgpa, cgpa));
+            }
+        }
+        
+        // Ensure chronological order if the page lists them in reverse (Spring 2020, Fall 2019 etc)
+        // Usually, COMSATS lists older semesters first, but just in case, we won't sort here, we'll plot them as they appear.
+        // Actually, older first is standard. Let's just return what we find.
+        return history;
+    }
+
     /** Download student photo as raw bytes (for JavaFX Image) using Dashboard as referer */
     public byte[] fetchPhotoBytes(String photoUrl) {
         return fetchPhotoBytes(photoUrl, BASE_URL + "/Dashboard.aspx");
@@ -411,18 +477,34 @@ public class PortalRepository {
         List<String[]> options = new ArrayList<>();
         if (html == null) return options;
         Document doc = Jsoup.parse(html);
-        // Find the select element by partial ID match
-        Element select = null;
+        
+        Element bestSelect = null;
         for (Element el : doc.select("select")) {
             String id = el.attr("id").toLowerCase();
             String name = el.attr("name").toLowerCase();
             if (id.contains(dropdownIdFragment.toLowerCase()) || name.contains(dropdownIdFragment.toLowerCase())) {
-                select = el;
+                bestSelect = el;
                 break;
             }
         }
-        if (select == null) return options;
-        for (Element opt : select.select("option")) {
+        
+        // Fallback: If not found, try to find any dropdown that looks like it has course codes (e.g. CSC101, HUM100) or is the only dropdown
+        if (bestSelect == null) {
+            Elements selects = doc.select("select");
+            for (Element el : selects) {
+                if (el.text().matches(".*[A-Z]{3,4}-?\\d{3,4}.*") || el.text().toLowerCase().contains("select")) {
+                    bestSelect = el;
+                    break;
+                }
+            }
+            if (bestSelect == null && !selects.isEmpty()) {
+                bestSelect = selects.first(); // Ultimate fallback
+            }
+        }
+        
+        if (bestSelect == null) return options;
+        
+        for (Element opt : bestSelect.select("option")) {
             String val = opt.attr("value");
             String text = opt.text().trim();
             if (!val.isEmpty() && !text.toLowerCase().startsWith("select") && !text.startsWith("--")) {
@@ -432,18 +514,33 @@ public class PortalRepository {
         return options;
     }
 
-    /** Get the name attribute of a dropdown by partial ID */
     public String findDropdownName(String html, String dropdownIdFragment) {
         if (html == null) return null;
         Document doc = Jsoup.parse(html);
+        Element bestSelect = null;
         for (Element el : doc.select("select")) {
             String id = el.attr("id").toLowerCase();
-            String name = el.attr("name");
-            if (id.contains(dropdownIdFragment.toLowerCase()) || name.toLowerCase().contains(dropdownIdFragment.toLowerCase())) {
-                return name;
+            String name = el.attr("name").toLowerCase();
+            if (id.contains(dropdownIdFragment.toLowerCase()) || name.contains(dropdownIdFragment.toLowerCase())) {
+                bestSelect = el;
+                break;
             }
         }
-        return null;
+        
+        if (bestSelect == null) {
+            Elements selects = doc.select("select");
+            for (Element el : selects) {
+                if (el.text().matches(".*[A-Z]{3,4}-?\\d{3,4}.*") || el.text().toLowerCase().contains("select")) {
+                    bestSelect = el;
+                    break;
+                }
+            }
+            if (bestSelect == null && !selects.isEmpty()) {
+                bestSelect = selects.first();
+            }
+        }
+        
+        return bestSelect != null ? bestSelect.attr("name") : null;
     }
 
     /**
@@ -533,22 +630,25 @@ public class PortalRepository {
             Element form = doc.select("form").first();
             if (form == null) return null;
 
-            // 2. Build POST body with all hidden fields + dropdown value
+            // 2. Build POST body
             FormBody.Builder formBuilder = new FormBody.Builder();
 
-            for (Element input : form.select("input[type=hidden]")) {
+            for (Element input : form.select("input")) {
                 String name = input.attr("name");
                 String value = input.attr("value");
-                if (!name.isEmpty()) {
+                String type = input.attr("type").toLowerCase();
+                if (!name.isEmpty() && (type.equals("hidden") || type.equals("text") || type.equals("password") || type.equals("radio") || type.equals("checkbox"))) {
                     formBuilder.add(name, value);
                 }
             }
 
-            // Add all other form fields with their current values
+            // Add all select fields
+            Element targetDropdown = null;
             for (Element el : form.select("select")) {
                 String name = el.attr("name");
                 if (name.equals(dropdownName)) {
                     formBuilder.add(name, selectedValue);
+                    targetDropdown = el;
                 } else {
                     Element selected = el.select("option[selected]").first();
                     String val = selected != null ? selected.attr("value") :
@@ -557,9 +657,25 @@ public class PortalRepository {
                 }
             }
 
-            // ASP.NET event target for the dropdown (autopostback)
-            formBuilder.add("__EVENTTARGET", dropdownName);
-            formBuilder.add("__EVENTARGUMENT", "");
+            // Check if it's AutoPostBack
+            boolean isAutoPostBack = false;
+            if (targetDropdown != null) {
+                String onchange = targetDropdown.attr("onchange");
+                if (onchange.contains("__doPostBack")) {
+                    isAutoPostBack = true;
+                }
+            }
+
+            if (isAutoPostBack) {
+                formBuilder.add("__EVENTTARGET", dropdownName);
+                formBuilder.add("__EVENTARGUMENT", "");
+            } else {
+                // Not AutoPostBack, we must simulate clicking the primary submit button
+                Element submitBtn = form.selectFirst("input[type=submit], button[type=submit]");
+                if (submitBtn != null) {
+                    formBuilder.add(submitBtn.attr("name"), submitBtn.attr("value"));
+                }
+            }
 
             // 3. POST
             String formAction = form.attr("action");
@@ -606,6 +722,299 @@ public class PortalRepository {
         } catch (IOException e) {
             return null;
         }
+    }
+
+    // ---------- Settings Sub-Tabs Implementations ----------
+    
+    private String extractPortalMessage(String html) {
+        if (html == null) return "Network Error";
+        Document doc = Jsoup.parse(html);
+        Element msg = doc.select("span[id*=lblMsg], span[id*=lblMessage], span[id*=lblError], div.alert").first();
+        if (msg != null && !msg.text().isBlank()) return msg.text().trim();
+        return "Action completed.";
+    }
+
+    public ProfileInfo parseProfileInfo(String html) {
+        if (html == null || html.isBlank()) return null;
+        Document doc = Jsoup.parse(html);
+        String network = "", number = "", email = "";
+        for (Element input : doc.select("input")) {
+            String name = input.attr("name").toLowerCase();
+            if (name.contains("serviceno") || name.contains("network")) {
+                network = input.attr("value");
+            } else if (name.contains("cellno") || name.contains("mobile") || (name.contains("cell") && !name.contains("serviceno"))) {
+                number = input.attr("value");
+            } else if (name.contains("email")) {
+                email = input.attr("value");
+            }
+        }
+        return new ProfileInfo(network, number, email);
+    }
+
+    public List<LoginHistoryEntry> parseLoginHistory(String html) {
+        List<LoginHistoryEntry> history = new ArrayList<>();
+        if (html == null || html.isBlank()) return history;
+        Document doc = Jsoup.parse(html);
+        Element targetTable = null;
+        for (Element t : doc.select("table")) {
+            if (t.text().toLowerCase().contains("login time") || t.attr("id").toLowerCase().contains("gvloginhistory")) {
+                targetTable = t;
+                break;
+            }
+        }
+        if (targetTable != null) {
+            boolean first = true;
+            for (Element row : targetTable.select("tr")) {
+                if (first && row.select("th").size() > 0) { first = false; continue; } // skip header
+                Elements tds = row.select("td");
+                if (tds.size() >= 4) {
+                    history.add(new LoginHistoryEntry(
+                            tds.get(0).text().trim(),
+                            tds.get(1).text().trim(),
+                            tds.get(2).text().trim(),
+                            tds.get(3).text().trim()
+                    ));
+                    if (history.size() >= 100) break;
+                }
+            }
+        }
+        return history;
+    }
+
+    public List<List<String>> parseScholarships(String html) {
+        List<List<String>> data = new ArrayList<>();
+        if (html == null || html.isBlank()) return data;
+        Document doc = Jsoup.parse(html);
+        Element targetTable = null;
+        for (Element t : doc.select("table")) {
+            if (t.text().toLowerCase().contains("scholarship") || t.attr("id").toLowerCase().contains("gridview")) {
+                targetTable = t;
+                break;
+            }
+        }
+        if (targetTable == null) targetTable = doc.select("table").first();
+        if (targetTable != null) {
+            for (Element row : targetTable.select("tr")) {
+                List<String> rowData = new ArrayList<>();
+                for (Element cell : row.select("th, td")) {
+                    rowData.add(cell.text().trim());
+                }
+                // Skip rows like "Scholarship Awarded Information" that span the whole table
+                if (rowData.size() > 2 && rowData.stream().anyMatch(s -> !s.isBlank())) {
+                    data.add(rowData);
+                }
+            }
+        }
+        return data;
+    }
+
+    public String downloadAndExtractPdf(String relativeUrl) {
+        try {
+            Request request = new Request.Builder()
+                    .url(BASE_URL + "/" + relativeUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .build();
+            try (Response response = client.newCall(request).execute()) {
+                if (response.isSuccessful() && response.body() != null) {
+                    byte[] pdfBytes = response.body().bytes();
+                    com.lowagie.text.pdf.PdfReader reader = new com.lowagie.text.pdf.PdfReader(pdfBytes);
+                    com.lowagie.text.pdf.parser.PdfTextExtractor extractor = new com.lowagie.text.pdf.parser.PdfTextExtractor(reader);
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 1; i <= reader.getNumberOfPages(); i++) {
+                        sb.append(extractor.getTextFromPage(i)).append("\n\n");
+                    }
+                    reader.close();
+                    return sb.toString();
+                } else {
+                    return "Failed to download PDF. Server returned " + response.code();
+                }
+            }
+        } catch (Exception e) {
+            return "Error extracting PDF: " + e.getMessage();
+        }
+    }
+
+    public String updateProfile(String newNetwork, String newNumber, String newEmail) {
+        try {
+            String pageUrl = BASE_URL + "/AddCellEmailInfo.aspx";
+            String pageHtml = fetchPageHtml("AddCellEmailInfo.aspx");
+            if (pageHtml == null) return "Could not fetch profile page.";
+            
+            Document doc = Jsoup.parse(pageHtml);
+            Element form = doc.select("form").first();
+            if (form == null) return "Form not found on profile page.";
+
+            FormBody.Builder formBuilder = new FormBody.Builder();
+            String btnName = "";
+            int cellCount = 0;
+            for (Element input : form.select("input, select")) {
+                String name = input.attr("name");
+                String type = input.attr("type").toLowerCase();
+                String val = input.attr("value");
+                if ("select".equals(input.tagName())) {
+                     Element selected = input.select("option[selected]").first();
+                     val = selected != null ? selected.attr("value") : "";
+                     formBuilder.add(name, val);
+                     continue;
+                }
+
+                if (type.equals("hidden")) {
+                    formBuilder.add(name, val);
+                } else if (name.toLowerCase().contains("btnsubmit") || name.toLowerCase().contains("btnsave") || type.equals("submit")) {
+                    if (btnName.isEmpty()) {
+                        btnName = name;
+                        formBuilder.add(name, "Save");
+                    }
+                } else if (name.toLowerCase().contains("serviceno") || name.toLowerCase().contains("network")) {
+                    formBuilder.add(name, newNetwork);
+                } else if (name.toLowerCase().contains("cellno") || name.toLowerCase().contains("mobile") || (name.toLowerCase().contains("cell") && !name.toLowerCase().contains("serviceno"))) {
+                    formBuilder.add(name, newNumber);
+                } else if (name.toLowerCase().contains("email")) {
+                    formBuilder.add(name, newEmail);
+                } else if (type.equals("text") || type.equals("password")) {
+                    formBuilder.add(name, val);
+                }
+            }
+
+            Request postReq = new Request.Builder()
+                    .url(pageUrl)
+                    .post(formBuilder.build())
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("Referer", pageUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .build();
+
+            try (Response resp = client.newCall(postReq).execute()) {
+                String body = resp.body() != null ? resp.body().string() : "";
+                return extractPortalMessage(body);
+            }
+        } catch (Exception e) {
+            return "Network Error: " + e.getMessage();
+        }
+    }
+
+    public String changePassword(String currentPass, String newPass, String confirmPass) {
+        try {
+            String pageUrl = BASE_URL + "/changepassword.aspx";
+            String pageHtml = fetchPageHtml("changepassword.aspx");
+            if (pageHtml == null) return "Could not fetch password change page.";
+            
+            Document doc = Jsoup.parse(pageHtml);
+            Element form = doc.select("form").first();
+            if (form == null) return "Form not found on password change page.";
+
+            FormBody.Builder formBuilder = new FormBody.Builder();
+            String btnName = "";
+            for (Element input : form.select("input, select")) {
+                String name = input.attr("name");
+                String type = input.attr("type").toLowerCase();
+                String val = input.attr("value");
+                if ("select".equals(input.tagName())) {
+                     Element selected = input.select("option[selected]").first();
+                     val = selected != null ? selected.attr("value") : "";
+                     formBuilder.add(name, val);
+                     continue;
+                }
+
+                if (type.equals("hidden")) {
+                    formBuilder.add(name, val);
+                } else if (name.toLowerCase().contains("btnchange") || name.toLowerCase().contains("btnsubmit") || type.equals("submit") || name.toLowerCase().contains("btn")) {
+                    if (btnName.isEmpty() && !name.toLowerCase().contains("cancel")) {
+                        btnName = name;
+                        formBuilder.add(name, "Change Password");
+                    }
+                } else if (name.toLowerCase().contains("old") && (type.equals("password") || type.equals("text"))) {
+                    formBuilder.add(name, currentPass);
+                } else if (name.toLowerCase().contains("new") && (type.equals("password") || type.equals("text"))) {
+                    formBuilder.add(name, newPass);
+                } else if (name.toLowerCase().contains("confirm") && (type.equals("password") || type.equals("text"))) {
+                    formBuilder.add(name, confirmPass);
+                } else if (type.equals("text") || type.equals("password")) {
+                    formBuilder.add(name, val);
+                }
+            }
+
+            Request postReq = new Request.Builder()
+                    .url(pageUrl)
+                    .post(formBuilder.build())
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("Referer", pageUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .build();
+
+            try (Response resp = client.newCall(postReq).execute()) {
+                String body = resp.body() != null ? resp.body().string() : "";
+                return extractPortalMessage(body);
+            }
+        } catch (Exception e) {
+            return "Network Error: " + e.getMessage();
+        }
+    }
+
+    public String generateAppPassword(String currentPass) {
+        try {
+            String pageUrl = BASE_URL + "/GenerateAppPassword.aspx";
+            String pageHtml = fetchPageHtml("GenerateAppPassword.aspx");
+            if (pageHtml == null) return "Could not fetch app password page.";
+            
+            Document doc = Jsoup.parse(pageHtml);
+            Element form = doc.select("form").first();
+            if (form == null) return "Form not found on app password page.";
+
+            FormBody.Builder formBuilder = new FormBody.Builder();
+            String btnName = "";
+            for (Element input : form.select("input, select")) {
+                String name = input.attr("name");
+                String type = input.attr("type").toLowerCase();
+                String val = input.attr("value");
+                if ("select".equals(input.tagName())) {
+                     Element selected = input.select("option[selected]").first();
+                     val = selected != null ? selected.attr("value") : "";
+                     formBuilder.add(name, val);
+                     continue;
+                }
+
+                if (type.equals("hidden")) {
+                    formBuilder.add(name, val);
+                } else if (name.toLowerCase().contains("btnsubmit") || type.equals("submit") || name.toLowerCase().contains("btn")) {
+                    if (btnName.isEmpty()) {
+                        btnName = name;
+                        formBuilder.add(name, "Submit");
+                    }
+                } else if (type.equals("password") || name.toLowerCase().contains("pass")) {
+                    formBuilder.add(name, currentPass);
+                } else if (type.equals("text")) {
+                    formBuilder.add(name, val);
+                }
+            }
+
+            Request postReq = new Request.Builder()
+                    .url(pageUrl)
+                    .post(formBuilder.build())
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("Referer", pageUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .build();
+
+            try (Response resp = client.newCall(postReq).execute()) {
+                String body = resp.body() != null ? resp.body().string() : "";
+                return extractPortalMessage(body);
+            }
+        } catch (Exception e) {
+            return "Network Error: " + e.getMessage();
+        }
+    }
+
+    public String extractPasswordRules(String html) {
+        if (html == null) return "Password must be at least 8 characters long, include a number, an uppercase letter, and a special character.";
+        Document doc = Jsoup.parse(html);
+        Element container = doc.select("div.alert, span[id*=lblRules], td, li").stream()
+                .filter(e -> e.text().toLowerCase().contains("must contain") || e.text().toLowerCase().contains("policy"))
+                .findFirst().orElse(null);
+        if (container != null && !container.text().isBlank()) {
+            return container.text().replaceAll("(?i)password policy:?", "").trim();
+        }
+        return "Password must be at least 8 characters long, include a number, an uppercase letter, and a special character.";
     }
 
     // ---------- Helpers ported from Kotlin ----------

@@ -41,16 +41,31 @@ public class CoursesTabView {
 
     private void buildShell() {
         root.setFillWidth(true);
+        
+        HBox headerRow = new HBox();
+        headerRow.setAlignment(Pos.CENTER_LEFT);
+        headerRow.setPadding(new Insets(24, 28, 0, 28));
+
         Label heading = new Label("Courses");
         heading.getStyleClass().add("heading-label");
-        heading.setPadding(new Insets(24, 28, 0, 28));
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button refreshBtn = new Button("🔄");
+        refreshBtn.setStyle("-fx-background-color:transparent;-fx-font-size:18px;-fx-cursor:hand;");
+        refreshBtn.setOnAction(e -> loadTab(activeTab, null, true));
+
+        headerRow.getChildren().addAll(heading, spacer, refreshBtn);
+
         tabBar = new HBox(4);
         tabBar.setPadding(new Insets(12, 28, 0, 28));
         tabBar.getChildren().addAll(
             tabBtn("Summary","summary"), tabBtn("Class Proceedings","proceedings"), tabBtn("Q.A/Sess/Final Marks","marks"));
+        
         contentPane = new StackPane();
         VBox.setVgrow(contentPane, Priority.ALWAYS);
-        root.getChildren().addAll(heading, tabBar, contentPane);
+        root.getChildren().addAll(headerRow, tabBar, contentPane);
     }
 
     private Button tabBtn(String label, String id) {
@@ -64,15 +79,19 @@ public class CoursesTabView {
 
     private String tabStyle(boolean on) {
         return on ? "-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:12px;-fx-font-weight:600;-fx-background-radius:6;-fx-padding:6 14;"
-                  : "-fx-background-color:white;-fx-text-fill:#666;-fx-font-size:12px;-fx-font-weight:500;-fx-background-radius:6;-fx-padding:6 14;-fx-border-color:#d5d0ce;-fx-border-radius:6;-fx-border-width:1;";
+                  : "-fx-background-color: -color-bg-card;-fx-text-fill:#666;-fx-font-size:12px;-fx-font-weight:500;-fx-background-radius:6;-fx-padding:6 14;-fx-border-color:#d5d0ce;-fx-border-radius:6;-fx-border-width:1;";
     }
 
     private void loadTab(String id) {
-        loadTab(id, null);
+        loadTab(id, null, false);
     }
 
-    private void loadTab(String tabKey, String extraParam) {
-        if (activeTab.equals(tabKey) && !tabKey.endsWith("_postback")) return;
+    private String lastSelectedCourseTitle = null;
+    private boolean hasExplicitlySelectedCourse = false;
+    private int loadRequestId = 0;
+
+    private void loadTab(String tabKey, String extraParam, boolean forceRefresh) {
+        if (!forceRefresh && activeTab.equals(tabKey) && !tabKey.endsWith("_postback")) return;
         activeTab = tabKey;
         isSummary = tabKey.equals("summary");
 
@@ -82,28 +101,61 @@ public class CoursesTabView {
             }
         }
 
+        final int currentRequestId = ++loadRequestId;
         showLoading("Loading...");
         new Thread(() -> {
             switch (tabKey) {
-                case "summary" -> loadSummary();
-                case "proceedings" -> loadProceedings(extraParam);
-                case "proceedings_postback" -> loadProceedingsFromSummary(extraParam);
-                case "marks" -> loadMarksByText(extraParam);
-                case "marks_postback" -> loadMarksFromSummary(extraParam);
+                case "summary" -> loadSummary(forceRefresh, currentRequestId);
+                case "proceedings" -> {
+                    if (lastSelectedCourseTitle != null && extraParam == null) {
+                        loadProceedingsByText(lastSelectedCourseTitle, forceRefresh, currentRequestId);
+                    } else {
+                        loadProceedings(extraParam, forceRefresh, currentRequestId);
+                    }
+                }
+                case "proceedings_postback" -> loadProceedingsFromSummary(extraParam, currentRequestId);
+                case "marks" -> {
+                    if (lastSelectedCourseTitle != null && extraParam == null) {
+                        loadMarksByText(lastSelectedCourseTitle, forceRefresh, currentRequestId);
+                    } else {
+                        loadMarksByText(extraParam, forceRefresh, currentRequestId);
+                    }
+                }
+                case "marks_postback" -> loadMarksFromSummary(extraParam, currentRequestId);
             }
         }).start();
     }
 
-    private void loadMarksFromSummary(String eventTarget) {
-        String res = context.portalRepository().postbackEvent("Summary.aspx", eventTarget);
-        try { java.nio.file.Files.writeString(java.nio.file.Paths.get("marks_postback_result.html"), res == null ? "null" : res); } catch(Exception e){}
-        loadMarks(null);
+    private void loadMarksFromSummary(String eventTarget, int currentRequestId) {
+        new Thread(() -> {
+            context.portalRepository().postbackEvent("Summary.aspx", eventTarget);
+            if (currentRequestId == loadRequestId) {
+                loadMarks(null, true, currentRequestId);
+            }
+        }).start();
     }
 
-    private void loadProceedingsFromSummary(String eventTarget) {
-        String res = context.portalRepository().postbackEvent("Summary.aspx", eventTarget);
-        try { java.nio.file.Files.writeString(java.nio.file.Paths.get("summary_postback_result.html"), res == null ? "null" : res); } catch(Exception e){}
-        loadProceedings(null);
+    private void loadProceedingsFromSummary(String eventTarget, int currentRequestId) {
+        new Thread(() -> {
+            context.portalRepository().postbackEvent("Summary.aspx", eventTarget);
+            if (currentRequestId == loadRequestId) {
+                loadProceedings(null, true, currentRequestId);
+            }
+        }).start();
+    }
+
+    private void setContentAnimated(javafx.scene.Node node) {
+        contentPane.getChildren().setAll(node);
+        javafx.animation.FadeTransition ft = new javafx.animation.FadeTransition(javafx.util.Duration.millis(200), node);
+        ft.setFromValue(0.0);
+        ft.setToValue(1.0);
+        
+        javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(200), node);
+        tt.setFromY(10);
+        tt.setToY(0);
+        
+        javafx.animation.ParallelTransition pt = new javafx.animation.ParallelTransition(ft, tt);
+        pt.play();
     }
 
     private void showLoading(String msg) {
@@ -113,23 +165,47 @@ public class CoursesTabView {
             ProgressIndicator sp = new ProgressIndicator(); sp.setMaxSize(28,28);
             Label l = new Label(msg); l.setStyle("-fx-text-fill:#888;-fx-font-size:12px;");
             box.getChildren().addAll(sp, l);
-            contentPane.getChildren().add(new StackPane(box));
+            setContentAnimated(new StackPane(box));
         });
     }
 
     // ==================== SUMMARY ====================
-    private void loadSummary() {
-        String html = context.portalRepository().fetchPageHtml("Summary.aspx");
-        try { java.nio.file.Files.writeString(java.nio.file.Paths.get("summary_raw.html"), html); } catch(Exception e){}
-        Platform.runLater(() -> {
-            contentPane.getChildren().clear();
-            if (html == null) { showError("Could not load Summary."); return; }
-            contentPane.getChildren().add(buildSummaryView(html));
-        });
+    private void loadSummary(boolean forceRefresh, int currentRequestId) {
+        try {
+            String html = null;
+            boolean isOffline = false;
+
+            if (!forceRefresh) {
+                html = context.dataCacheService().getCachedHtml("Summary.aspx").orElse(null);
+            }
+
+            if (html == null) {
+                html = context.fetchAndCacheHtml("Summary.aspx");
+                if (html == null) {
+                    html = context.dataCacheService().getCachedHtml("Summary.aspx").orElse(null);
+                    isOffline = true;
+                }
+            }
+
+            final String finalHtml = html;
+            final boolean finalOffline = isOffline;
+            
+            Platform.runLater(() -> {
+                if (currentRequestId != loadRequestId) return;
+                contentPane.getChildren().clear();
+                if (finalHtml == null) { showError("Could not load Summary and no offline data available."); return; }
+                setContentAnimated(buildSummaryView(finalHtml, finalOffline));
+            });
+        } catch (Exception e) {
+            Platform.runLater(() -> { if (currentRequestId == loadRequestId) showError("Error: " + e.getMessage()); });
+        }
     }
 
-    private ScrollPane buildSummaryView(String html) {
+    private ScrollPane buildSummaryView(String html, boolean isOffline) {
         VBox content = new VBox(16); content.setPadding(new Insets(16,28,24,28)); content.setFillWidth(true);
+        if (isOffline) {
+            content.getChildren().add(buildOfflineBanner());
+        }
         Document doc = Jsoup.parse(html);
         for (Element table : doc.select("table")) {
             String tt = table.text().toLowerCase();
@@ -146,60 +222,86 @@ public class CoursesTabView {
     }
 
     // ==================== CLASS PROCEEDINGS ====================
-    private void loadProceedingsByText(String text) {
-        if (text == null) {
-            loadProceedings(null);
+    private void loadProceedingsByText(String text, boolean forceRefresh, int currentRequestId) {
+        if (text == null || text.isBlank()) {
+            loadProceedings(null, forceRefresh, currentRequestId);
             return;
         }
-        String html = context.portalRepository().fetchPageHtml(PROC_PAGE);
+        
+        String html = null;
+        if (!forceRefresh) html = context.dataCacheService().getCachedHtml(PROC_PAGE).orElse(null);
+        if (html == null) {
+            html = context.fetchAndCacheHtml(PROC_PAGE);
+            if (html == null) {
+                html = context.dataCacheService().getCachedHtml(PROC_PAGE).orElse(null);
+            }
+        }
+
         if (html != null) {
             List<String[]> courses = context.portalRepository().parseDropdownOptions(html, "course");
             if (courses.isEmpty()) courses.addAll(context.portalRepository().parseDropdownOptions(html, "ddl"));
+            String lowerText = text.trim().toLowerCase();
             for (String[] c : courses) {
-                if (c[1].equalsIgnoreCase(text.trim())) {
-                    loadProceedings(c[0]);
+                if (c[1].toLowerCase().contains(lowerText) || lowerText.contains(c[1].toLowerCase())) {
+                    loadProceedings(c[0], forceRefresh, currentRequestId);
                     return;
                 }
             }
+            
+            // If we are here, the cached HTML does not have a dropdown with the course we want.
+            // This usually happens if the cache is stale (e.g. an empty 'Please select a course' page).
+            // We must force a network fetch to see if the server session is already correct.
+            if (!forceRefresh) {
+                loadProceedingsByText(text, true, currentRequestId);
+                return;
+            }
         }
-        loadProceedings(null);
+        loadProceedings(null, forceRefresh, currentRequestId);
     }
 
-    private void loadProceedings(String courseValue) {
+    private void loadProceedings(String courseValue, boolean forceRefresh, int currentRequestId) {
         // First fetch the page to get the dropdown
-        String html = context.portalRepository().fetchPageHtml(PROC_PAGE);
-        if (html == null) { Platform.runLater(() -> showError("Could not load Class Proceedings page.")); return; }
+        String html = null;
+        boolean isOffline = false;
+
+        if (!forceRefresh) html = context.dataCacheService().getCachedHtml(PROC_PAGE).orElse(null);
+        if (html == null) {
+            html = context.fetchAndCacheHtml(PROC_PAGE);
+            if (html == null) {
+                html = context.dataCacheService().getCachedHtml(PROC_PAGE).orElse(null);
+                isOffline = true;
+            }
+        }
+        if (html == null) { Platform.runLater(() -> showError("Could not load Class Proceedings page and no offline data available.")); return; }
         proceedingsPageHtml = html;
 
-        try { java.nio.file.Files.writeString(java.nio.file.Paths.get("proceedings_raw.html"), html); } catch(Exception e){}
-
-        // If a course is selected, do postback
-        if (courseValue != null) {
+        // If a course is selected, do postback (network required)
+        if (courseValue != null && !isOffline) {
             String ddName = context.portalRepository().findDropdownName(html, "course");
             if (ddName == null) ddName = context.portalRepository().findDropdownName(html, "ddl");
             if (ddName != null) {
                 String result = context.portalRepository().postbackWithDropdown(PROC_PAGE, ddName, courseValue);
-                if (result != null) {
-                    html = result;
-                    try { java.nio.file.Files.writeString(java.nio.file.Paths.get("proceedings_postback.html"), html); } catch(Exception e){}
-                }
+                if (result != null) html = result;
             }
         }
         final String finalHtml = html;
+        final boolean finalOffline = isOffline;
         final List<String[]> courses = context.portalRepository().parseDropdownOptions(proceedingsPageHtml, "course");
         if (courses.isEmpty()) {
-            // Try alternate dropdown ID patterns
             courses.addAll(context.portalRepository().parseDropdownOptions(proceedingsPageHtml, "ddl"));
         }
 
         Platform.runLater(() -> {
-            contentPane.getChildren().clear();
-            contentPane.getChildren().add(buildProceedingsView(finalHtml, courses, courseValue));
+            if (currentRequestId != loadRequestId) return;
+            setContentAnimated(buildProceedingsView(finalHtml, courses, courseValue, finalOffline));
         });
     }
 
-    private ScrollPane buildProceedingsView(String html, List<String[]> courses, String selected) {
+    private ScrollPane buildProceedingsView(String html, List<String[]> courses, String selected, boolean isOffline) {
         VBox content = new VBox(14); content.setPadding(new Insets(16,28,24,28)); content.setFillWidth(true);
+        if (isOffline) {
+            content.getChildren().add(buildOfflineBanner());
+        }
 
         // Course selector
         if (!courses.isEmpty()) {
@@ -215,7 +317,13 @@ public class CoursesTabView {
             combo.setStyle("-fx-font-size:12px;");
             combo.setOnAction(e -> {
                 String val = valueMap.get(combo.getValue());
-                if (val != null) { showLoading("Loading proceedings..."); new Thread(() -> loadProceedings(val)).start(); }
+                if (val != null) { 
+                    lastSelectedCourseTitle = combo.getValue();
+                    hasExplicitlySelectedCourse = true;
+                    showLoading("Loading proceedings..."); 
+                    final int reqId = ++loadRequestId;
+                    new Thread(() -> loadProceedings(val, false, reqId)).start(); 
+                }
             });
             selectorRow.getChildren().addAll(lbl, combo);
             content.getChildren().add(selectorRow);
@@ -223,21 +331,36 @@ public class CoursesTabView {
 
         Document doc = Jsoup.parse(html);
 
-        // Parse course info header (Course, Faculty, Total Classes, Presents, Absents, Percentage)
-        VBox infoCard = parseCourseHeader(doc);
-        if (infoCard != null) content.getChildren().add(infoCard);
+        // Check for server messages
+        Element msg = doc.selectFirst("#DataContent_lblMessage");
+        if (msg == null) msg = doc.selectFirst(".notification.information");
+        if (msg != null && !msg.text().isBlank()) {
+            Label msgLbl = new Label(msg.text().replace("Select Course", ""));
+            msgLbl.setStyle("-fx-font-size:14px; -fx-text-fill:#e53e3e; -fx-font-weight:bold;");
+            content.getChildren().add(msgLbl);
+        } else if (!hasExplicitlySelectedCourse) {
+            Label msgLbl = new Label("Please select a course from the dropdown above or from the Summary tab.");
+            msgLbl.setStyle("-fx-font-size:14px; -fx-text-fill:#e53e3e; -fx-font-weight:bold;");
+            content.getChildren().add(msgLbl);
+        }
 
-        // Parse lecture table
-        for (Element table : doc.select("table")) {
-            String tt = table.text().toLowerCase();
-            if (tt.contains("father name") || tt.contains("cnic")) continue;
-            Elements rows = table.select("tr");
-            if (rows.size() < 2) continue;
-            Element hdr = rows.first();
-            String hdrText = hdr.text().toLowerCase();
-            if (hdrText.contains("lecture") || hdrText.contains("date") || hdrText.contains("topic") || hdrText.contains("status")) {
-                VBox card = buildNativeTable(rows);
-                if (card != null) content.getChildren().add(card);
+        if (hasExplicitlySelectedCourse) {
+            // Parse course info header (Course, Faculty, Total Classes, Presents, Absents, Percentage)
+            VBox infoCard = parseCourseHeader(doc);
+            if (infoCard != null) content.getChildren().add(infoCard);
+
+            // Parse lecture table
+            for (Element table : doc.select("table")) {
+                String tt = table.text().toLowerCase();
+                if (tt.contains("father name") || tt.contains("cnic")) continue;
+                Elements rows = table.select("tr");
+                if (rows.size() < 2) continue;
+                Element hdr = rows.first();
+                String hdrText = hdr.text().toLowerCase();
+                if (hdrText.contains("lecture") || hdrText.contains("date") || hdrText.contains("topic") || hdrText.contains("status")) {
+                    VBox card = buildNativeTable(rows);
+                    if (card != null) content.getChildren().add(card);
+                }
             }
         }
 
@@ -300,40 +423,77 @@ public class CoursesTabView {
     }
 
     // ==================== MARKS ====================
-    private void loadMarksByText(String text) {
-        if (text == null) {
-            loadMarks(null);
+    private void loadMarksByText(String text, boolean forceRefresh, int currentRequestId) {
+        if (text == null || text.isBlank()) {
+            loadMarks(null, forceRefresh, currentRequestId);
             return;
         }
         String page = MARKS_PAGE;
-        String html = context.portalRepository().fetchPageHtml(page);
+        String html = null;
+        if (!forceRefresh) html = context.dataCacheService().getCachedHtml(page).orElse(null);
         if (html == null) {
-            for (String fb : MARKS_FALLBACKS) { html = context.portalRepository().fetchPageHtml(fb); if (html != null) { page = fb; break; } }
+            html = context.fetchAndCacheHtml(page);
+            if (html == null) html = context.dataCacheService().getCachedHtml(page).orElse(null);
+        }
+        
+        if (html == null) {
+            for (String fb : MARKS_FALLBACKS) { 
+                html = context.dataCacheService().getCachedHtml(fb).orElse(null);
+                if (html == null) html = context.fetchAndCacheHtml(fb);
+                if (html == null) html = context.dataCacheService().getCachedHtml(fb).orElse(null);
+                if (html != null) { page = fb; break; } 
+            }
         }
         if (html != null) {
             List<String[]> courses = context.portalRepository().parseDropdownOptions(html, "course");
             if (courses.isEmpty()) courses.addAll(context.portalRepository().parseDropdownOptions(html, "ddl"));
+            String lowerText = text.trim().toLowerCase();
             for (String[] c : courses) {
-                if (c[1].equalsIgnoreCase(text.trim())) {
-                    loadMarks(c[0]);
+                if (c[1].toLowerCase().contains(lowerText) || lowerText.contains(c[1].toLowerCase())) {
+                    loadMarks(c[0], forceRefresh, currentRequestId);
                     return;
                 }
             }
+            
+            // Same stale cache invalidation logic as proceedings
+            if (!forceRefresh) {
+                loadMarksByText(text, true, currentRequestId);
+                return;
+            }
         }
-        loadMarks(null);
+        loadMarks(null, forceRefresh, currentRequestId);
     }
-    private void loadMarks(String courseValue) {
+    
+    private void loadMarks(String courseValue, boolean forceRefresh, int currentRequestId) {
         String html = null;
         String page = MARKS_PAGE;
-        html = context.portalRepository().fetchPageHtml(page);
-        if (html == null) {
-            for (String fb : MARKS_FALLBACKS) { html = context.portalRepository().fetchPageHtml(fb); if (html != null) { page = fb; break; } }
-        }
-        if (html == null) { Platform.runLater(() -> showError("Could not load Marks page.")); return; }
-        marksPageHtml = html;
-        try { java.nio.file.Files.writeString(java.nio.file.Paths.get("marks_raw.html"), html); } catch(Exception e){}
+        boolean isOffline = false;
 
-        if (courseValue != null) {
+        if (!forceRefresh) html = context.dataCacheService().getCachedHtml(page).orElse(null);
+        if (html == null) {
+            html = context.fetchAndCacheHtml(page);
+            if (html == null) {
+                html = context.dataCacheService().getCachedHtml(page).orElse(null);
+                isOffline = true;
+            }
+        }
+        if (html == null) {
+            for (String fb : MARKS_FALLBACKS) { 
+                html = context.dataCacheService().getCachedHtml(fb).orElse(null);
+                if (html == null) {
+                    html = context.fetchAndCacheHtml(fb);
+                    if (html == null) {
+                        html = context.dataCacheService().getCachedHtml(fb).orElse(null);
+                        isOffline = true;
+                    }
+                }
+                if (html != null) { page = fb; break; } 
+            }
+        }
+        if (html == null) { Platform.runLater(() -> showError("Could not load Marks page and no offline data available.")); return; }
+        marksPageHtml = html;
+
+        if (courseValue != null && !isOffline) {
             String ddName = context.portalRepository().findDropdownName(html, "course");
             if (ddName == null) ddName = context.portalRepository().findDropdownName(html, "ddl");
             if (ddName != null) {
@@ -342,19 +502,26 @@ public class CoursesTabView {
             }
         }
         final String finalHtml = html;
+        final boolean finalOffline = isOffline;
+        
+        try { java.nio.file.Files.writeString(java.nio.file.Paths.get("debug_marks.html"), marksPageHtml == null ? "null" : marksPageHtml); } catch(Exception e){}
+
         List<String[]> courses = context.portalRepository().parseDropdownOptions(marksPageHtml, "course");
         if (courses.isEmpty()) courses.addAll(context.portalRepository().parseDropdownOptions(marksPageHtml, "ddl"));
         final List<String[]> fc = courses;
         final String fp = page;
 
         Platform.runLater(() -> {
-            contentPane.getChildren().clear();
-            contentPane.getChildren().add(buildMarksView(finalHtml, fc, courseValue, fp));
+            if (currentRequestId != loadRequestId) return;
+            setContentAnimated(buildMarksView(finalHtml, fc, courseValue, fp, finalOffline));
         });
     }
 
-    private ScrollPane buildMarksView(String html, List<String[]> courses, String selected, String page) {
+    private ScrollPane buildMarksView(String html, List<String[]> courses, String selected, String page, boolean isOffline) {
         VBox content = new VBox(14); content.setPadding(new Insets(16,28,24,28)); content.setFillWidth(true);
+        if (isOffline) {
+            content.getChildren().add(buildOfflineBanner());
+        }
         if (!courses.isEmpty()) {
             HBox selectorRow = new HBox(10); selectorRow.setAlignment(Pos.CENTER_LEFT);
             Label lbl = new Label("Select Course:"); lbl.setStyle("-fx-font-weight:600;-fx-text-fill:#004643;-fx-font-size:13px;");
@@ -364,23 +531,47 @@ public class CoursesTabView {
             if (selected != null) for (String[] c : courses) { if (c[0].equals(selected)) { combo.setValue(c[1]); break; } }
             combo.setPromptText("Choose a course...");
             combo.setStyle("-fx-font-size:12px;");
-            combo.setOnAction(e -> { String v = vm.get(combo.getValue()); if (v!=null) { showLoading("Loading marks..."); new Thread(()->loadMarks(v)).start(); }});
+            combo.setOnAction(e -> { 
+                String v = vm.get(combo.getValue()); 
+                if (v!=null) { 
+                    lastSelectedCourseTitle = combo.getValue();
+                    hasExplicitlySelectedCourse = true;
+                    showLoading("Loading marks..."); 
+                    final int reqId = ++loadRequestId;
+                    new Thread(()->loadMarks(v, false, reqId)).start(); 
+                }
+            });
             selectorRow.getChildren().addAll(lbl, combo);
             content.getChildren().add(selectorRow);
         }
         Document doc = Jsoup.parse(html);
 
-        // Parse course info header
-        VBox infoCard = parseCourseHeader(doc);
-        if (infoCard != null) content.getChildren().add(infoCard);
+        // Check for server messages
+        Element msg = doc.selectFirst("#DataContent_lblMessage");
+        if (msg == null) msg = doc.selectFirst(".notification.information");
+        if (msg != null && !msg.text().isBlank()) {
+            Label msgLbl = new Label(msg.text().replace("Select Course", ""));
+            msgLbl.setStyle("-fx-font-size:14px; -fx-text-fill:#e53e3e; -fx-font-weight:bold;");
+            content.getChildren().add(msgLbl);
+        } else if (!hasExplicitlySelectedCourse) {
+            Label msgLbl = new Label("Please select a course from the dropdown above or from the Summary tab.");
+            msgLbl.setStyle("-fx-font-size:14px; -fx-text-fill:#e53e3e; -fx-font-weight:bold;");
+            content.getChildren().add(msgLbl);
+        }
 
-        for (Element table : doc.select("table")) {
-            String tt = table.text().toLowerCase();
-            if (tt.contains("father name") || tt.contains("cnic")) continue;
-            Elements rows = table.select("tr");
-            if (rows.size() < 2) continue;
-            VBox card = buildNativeTable(rows);
-            if (card != null) content.getChildren().add(card);
+        if (hasExplicitlySelectedCourse) {
+            // Parse course info header
+            VBox infoCard = parseCourseHeader(doc);
+            if (infoCard != null) content.getChildren().add(infoCard);
+
+            for (Element table : doc.select("table")) {
+                String tt = table.text().toLowerCase();
+                if (tt.contains("father name") || tt.contains("cnic")) continue;
+                Elements rows = table.select("tr");
+                if (rows.size() < 2) continue;
+                VBox card = buildNativeTable(rows);
+                if (card != null) content.getChildren().add(card);
+            }
         }
         ScrollPane sp = new ScrollPane(content); sp.setFitToWidth(true); sp.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         return sp;
@@ -416,7 +607,7 @@ public class CoursesTabView {
         if (headers.stream().allMatch(String::isEmpty)) return null;
 
         VBox card = new VBox(0);
-        card.setStyle("-fx-background-color:white;-fx-border-color:#e0e0e0;-fx-border-width:1;");
+        card.setStyle("-fx-background-color: -color-bg-card;-fx-border-color:#e0e0e0;-fx-border-width:1;");
 
         if (tableTitle != null && !tableTitle.isEmpty()) {
             Label lblTitle = new Label(tableTitle);
@@ -508,7 +699,12 @@ public class CoursesTabView {
                 } else if (isClickableCourse && !eventTarget.isEmpty()) {
                     style += "-fx-text-fill:#0066cc;-fx-underline:true;-fx-cursor:hand;";
                     String finalEventTarget = eventTarget;
-                    cl.setOnMouseClicked(e -> loadTab("marks_postback", finalEventTarget));
+                    String courseTitle = txt;
+                    cl.setOnMouseClicked(e -> {
+                        lastSelectedCourseTitle = courseTitle;
+                        hasExplicitlySelectedCourse = true;
+                        loadTab("marks_postback", finalEventTarget, false);
+                    });
                     cl.setStyle(style);
                     cellNode = cl;
                 } else {
@@ -546,6 +742,21 @@ public class CoursesTabView {
     }
 
     private void showError(String msg) { contentPane.getChildren().clear(); Label l = new Label(msg); l.setStyle("-fx-text-fill:#888;-fx-font-size:13px;-fx-padding:30;"); l.setWrapText(true); contentPane.getChildren().add(l); }
+
+    private HBox buildOfflineBanner() {
+        HBox banner = new HBox(8);
+        banner.setAlignment(Pos.CENTER);
+        banner.setPadding(new Insets(8, 16, 8, 16));
+        banner.setStyle("-fx-background-color:#FEF2F2;-fx-border-color:#FCA5A5;-fx-border-width:0 0 1 0;");
+        
+        Label icon = new Label("⚠");
+        icon.setStyle("-fx-text-fill:#DC2626;-fx-font-size:14px;");
+        Label text = new Label("Offline Mode: Displaying previously loaded data.");
+        text.setStyle("-fx-text-fill:#991B1B;-fx-font-size:12px;-fx-font-weight:bold;");
+        
+        banner.getChildren().addAll(icon, text);
+        return banner;
+    }
 
     public VBox getRoot() { return root; }
 }

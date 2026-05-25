@@ -47,9 +47,26 @@ public class FeeTabView {
 
     private void buildShell() {
         root.setFillWidth(true);
+        
+        HBox headerRow = new HBox();
+        headerRow.setAlignment(Pos.CENTER_LEFT);
+        headerRow.setPadding(new Insets(24, 28, 0, 28));
+
         Label heading = new Label("Fee Information");
         heading.getStyleClass().add("heading-label");
-        heading.setPadding(new Insets(24, 28, 0, 28));
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button refreshBtn = new Button("🔄");
+        refreshBtn.setStyle("-fx-background-color:transparent;-fx-font-size:18px;-fx-cursor:hand;");
+        refreshBtn.setOnAction(e -> {
+            contentPane.getChildren().clear();
+            if ("fee_challans".equals(activeTab)) loadFeeChallans(true);
+            else if ("fee_history".equals(activeTab)) loadFeeHistory(true);
+        });
+
+        headerRow.getChildren().addAll(heading, spacer, refreshBtn);
 
         tabBar = new HBox(4);
         tabBar.setPadding(new Insets(12, 28, 0, 28));
@@ -60,7 +77,7 @@ public class FeeTabView {
 
         contentPane = new StackPane();
         VBox.setVgrow(contentPane, Priority.ALWAYS);
-        root.getChildren().addAll(heading, tabBar, contentPane);
+        root.getChildren().addAll(headerRow, tabBar, contentPane);
     }
 
     private Button tabBtn(String label, String id) {
@@ -74,7 +91,7 @@ public class FeeTabView {
 
     private String tabStyle(boolean on) {
         return on ? "-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:600;-fx-background-radius:6;-fx-padding:6 12;"
-                  : "-fx-background-color:white;-fx-text-fill:#666;-fx-font-size:11px;-fx-font-weight:500;-fx-background-radius:6;-fx-padding:6 12;-fx-border-color:#d5d0ce;-fx-border-radius:6;-fx-border-width:1;";
+                  : "-fx-background-color: -color-bg-card;-fx-text-fill:#666;-fx-font-size:11px;-fx-font-weight:500;-fx-background-radius:6;-fx-padding:6 12;-fx-border-color:#d5d0ce;-fx-border-radius:6;-fx-border-width:1;";
     }
 
     private void loadTab(String tabKey) {
@@ -89,8 +106,8 @@ public class FeeTabView {
 
         contentPane.getChildren().clear();
         switch (tabKey) {
-            case "fee_challans" -> loadFeeChallans();
-            case "fee_history" -> loadFeeHistory();
+            case "fee_challans" -> loadFeeChallans(false);
+            case "fee_history" -> loadFeeHistory(false);
         }
     }
 
@@ -133,15 +150,29 @@ public class FeeTabView {
     // FEE CHALLANS LOGIC
     // =========================================================================
 
-    private void loadFeeChallans() {
+    private void loadFeeChallans(boolean forceRefresh) {
         showLoading("Loading Fee Challans...");
         new Thread(() -> {
             try {
-                String html = context.portalRepository().fetchPageHtml("FeeChallans.aspx");
+                String html = null;
+                boolean isOffline = false;
+
+                if (!forceRefresh) {
+                    html = context.dataCacheService().getCachedHtml("FeeChallans.aspx").orElse(null);
+                }
+
+                if (html == null) {
+                    html = context.fetchAndCacheHtml("FeeChallans.aspx");
+                    if (html == null) {
+                        html = context.dataCacheService().getCachedHtml("FeeChallans.aspx").orElse(null);
+                        isOffline = true;
+                    }
+                }
+
                 if (html == null) {
                     Platform.runLater(() -> {
                         contentPane.getChildren().clear();
-                        contentPane.getChildren().add(buildErrorState("Unable to load Fee Challans", "Failed to connect to the portal."));
+                        contentPane.getChildren().add(buildErrorState("Unable to load Fee Challans", "Failed to connect to the portal and no offline data available."));
                     });
                     return;
                 }
@@ -184,13 +215,17 @@ public class FeeTabView {
                     }
                 }
 
+                boolean finalOffline = isOffline;
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
+                    VBox container = new VBox();
+                    if (finalOffline) container.getChildren().add(buildOfflineBanner());
                     if (challans.isEmpty()) {
-                        contentPane.getChildren().add(buildEmptyChallansView());
+                        container.getChildren().add(buildEmptyChallansView());
                     } else {
-                        contentPane.getChildren().add(buildChallansListView(challans));
+                        container.getChildren().add(buildChallansListView(challans));
                     }
+                    contentPane.getChildren().add(container);
                 });
             } catch (Exception e) {
                 e.printStackTrace();
@@ -210,13 +245,13 @@ public class FeeTabView {
         VBox card = new VBox(12);
         card.setPadding(new Insets(32));
         card.setAlignment(Pos.CENTER);
-        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        card.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
 
         Label icon = new Label("📋");
         icon.setStyle("-fx-font-size:32px;");
 
         Label noChallansLabel = new Label("No fee challans are currently available.");
-        noChallansLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#475569;");
+        noChallansLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-muted;");
 
         card.getChildren().addAll(icon, noChallansLabel);
         content.getChildren().add(card);
@@ -233,10 +268,10 @@ public class FeeTabView {
             HBox row = new HBox(16);
             row.setAlignment(Pos.CENTER_LEFT);
             row.setPadding(new Insets(16));
-            row.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+            row.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
 
             Label desc = new Label(challan.description());
-            desc.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;");
+            desc.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
             desc.setWrapText(true);
             
             Region spacer = new Region();
@@ -368,15 +403,29 @@ public class FeeTabView {
     // FEE HISTORY LOGIC
     // =========================================================================
 
-    private void loadFeeHistory() {
+    private void loadFeeHistory(boolean forceRefresh) {
         showLoading("Loading Fee History...");
         new Thread(() -> {
             try {
-                String html = context.portalRepository().fetchPageHtml("FeeHistorySFMS.aspx");
+                String html = null;
+                boolean isOffline = false;
+
+                if (!forceRefresh) {
+                    html = context.dataCacheService().getCachedHtml("FeeHistorySFMS.aspx").orElse(null);
+                }
+
+                if (html == null) {
+                    html = context.fetchAndCacheHtml("FeeHistorySFMS.aspx");
+                    if (html == null) {
+                        html = context.dataCacheService().getCachedHtml("FeeHistorySFMS.aspx").orElse(null);
+                        isOffline = true;
+                    }
+                }
+
                 if (html == null) {
                     Platform.runLater(() -> {
                         contentPane.getChildren().clear();
-                        contentPane.getChildren().add(buildErrorState("Unable to load Fee History", "Failed to connect to the portal."));
+                        contentPane.getChildren().add(buildErrorState("Unable to load Fee History", "Failed to connect to the portal and no offline data available."));
                     });
                     return;
                 }
@@ -453,13 +502,17 @@ public class FeeTabView {
                     }
                 }
 
+                boolean finalOffline = isOffline;
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
+                    VBox container = new VBox();
+                    if (finalOffline) container.getChildren().add(buildOfflineBanner());
                     if (historyTables.isEmpty()) {
-                        contentPane.getChildren().add(buildEmptyHistoryView());
+                        container.getChildren().add(buildEmptyHistoryView());
                     } else {
-                        contentPane.getChildren().add(buildMultiTableView(historyTables));
+                        container.getChildren().add(buildMultiTableView(historyTables));
                     }
+                    contentPane.getChildren().add(container);
                 });
 
             } catch (Exception e) {
@@ -480,13 +533,13 @@ public class FeeTabView {
         VBox card = new VBox(12);
         card.setAlignment(Pos.CENTER);
         card.setPadding(new Insets(32));
-        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        card.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
 
         Label icon = new Label("📭");
         icon.setStyle("-fx-font-size:32px;");
 
         Label noHistoryLabel = new Label("No Fee History Available");
-        noHistoryLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#475569;");
+        noHistoryLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-muted;");
 
         card.getChildren().addAll(icon, noHistoryLabel);
         content.getChildren().add(card);
@@ -545,5 +598,20 @@ public class FeeTabView {
             alert.setContentText(message);
             alert.showAndWait();
         });
+    }
+
+    private HBox buildOfflineBanner() {
+        HBox banner = new HBox(8);
+        banner.setAlignment(Pos.CENTER);
+        banner.setPadding(new Insets(8, 16, 8, 16));
+        banner.setStyle("-fx-background-color:#FEF2F2;-fx-border-color:#FCA5A5;-fx-border-width:0 0 1 0;");
+        
+        Label icon = new Label("⚠");
+        icon.setStyle("-fx-text-fill:#DC2626;-fx-font-size:14px;");
+        Label text = new Label("Offline Mode: Displaying previously loaded data.");
+        text.setStyle("-fx-text-fill:#991B1B;-fx-font-size:12px;-fx-font-weight:bold;");
+        
+        banner.getChildren().addAll(icon, text);
+        return banner;
     }
 }

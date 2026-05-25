@@ -7,6 +7,7 @@ import javafx.geometry.Pos;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Button;
 import javafx.scene.layout.*;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -39,15 +40,47 @@ public class TimetableTabView {
 
     private final List<String> seenCourses = new ArrayList<>();
 
+    private StackPane contentPane;
+
     public TimetableTabView(AppContext context) {
         this.context = context;
-        buildLoading();
-        fetchTimetable();
+        buildShell();
+        loadTimetable(false);
     }
 
     public VBox getRoot() { return root; }
 
+    private void buildShell() {
+        root.setFillWidth(true);
+        
+        HBox headerRow = new HBox();
+        headerRow.setAlignment(Pos.CENTER_LEFT);
+        headerRow.setPadding(new Insets(24, 28, 16, 28));
+        headerRow.setStyle("-fx-background-color: -color-bg-card;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
+
+        Label title = new Label("Student Time Table");
+        title.setStyle("-fx-font-size:24px;-fx-font-weight:800;-fx-text-fill: -color-text-main;");
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button refreshBtn = new Button("🔄");
+        refreshBtn.setStyle("-fx-background-color:transparent;-fx-font-size:18px;-fx-cursor:hand;");
+        refreshBtn.setOnAction(e -> {
+            contentPane.getChildren().clear();
+            loadTimetable(true);
+        });
+
+        headerRow.getChildren().addAll(title, spacer, refreshBtn);
+        root.getChildren().add(headerRow);
+
+        contentPane = new StackPane();
+        VBox.setVgrow(contentPane, Priority.ALWAYS);
+        root.getChildren().add(contentPane);
+    }
+
     private void buildLoading() {
+        contentPane.getChildren().clear();
         StackPane loading = new StackPane();
         loading.setStyle("-fx-background-color: #F0EDEC;");
         VBox box = new VBox(10);
@@ -58,38 +91,56 @@ public class TimetableTabView {
         msg.setStyle("-fx-text-fill: #888888; -fx-font-size: 13px;");
         box.getChildren().addAll(spinner, msg);
         loading.getChildren().add(box);
-        VBox.setVgrow(loading, Priority.ALWAYS);
-        root.getChildren().add(loading);
+        contentPane.getChildren().add(loading);
     }
 
-    private void fetchTimetable() {
+    private void loadTimetable(boolean forceRefresh) {
+        buildLoading();
         new Thread(() -> {
             try {
-                String html = context.portalRepository().fetchPageHtml("Timetable.aspx");
+                String html = null;
+                boolean isOffline = false;
+
+                if (!forceRefresh) {
+                    html = context.dataCacheService().getCachedHtml("Timetable.aspx").orElse(null);
+                }
+
+                if (html == null) {
+                    html = context.fetchAndCacheHtml("Timetable.aspx");
+                    if (html == null) {
+                        html = context.dataCacheService().getCachedHtml("Timetable.aspx").orElse(null);
+                        isOffline = true;
+                    }
+                }
+
                 if (html == null) {
                     Platform.runLater(() -> {
-                        root.getChildren().clear();
-                        root.getChildren().add(buildError("Unable to load timetable.",
-                                "Failed to connect to the portal. Please check your internet connection."));
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildError("Unable to load timetable.", "Failed to connect to the portal and no offline data available."));
                     });
                     return;
                 }
+                
+                boolean finalOffline = isOffline;
+                String finalHtml = html;
                 Platform.runLater(() -> {
-                    root.getChildren().clear();
+                    contentPane.getChildren().clear();
                     try {
-                        root.getChildren().add(buildTimetableView(html));
+                        VBox container = new VBox();
+                        if (finalOffline) container.getChildren().add(buildOfflineBanner());
+                        container.getChildren().add(buildTimetableView(finalHtml));
+                        contentPane.getChildren().add(container);
                     } catch (Exception ex) {
                         ex.printStackTrace();
-                        root.getChildren().clear();
-                        root.getChildren().add(buildError("Parsing Error",
-                                "Could not parse the timetable page: " + ex.getMessage()));
+                        contentPane.getChildren().clear();
+                        contentPane.getChildren().add(buildError("Parsing Error", "Could not parse the timetable page: " + ex.getMessage()));
                     }
                 });
             } catch (Exception e) {
                 e.printStackTrace();
                 Platform.runLater(() -> {
-                    root.getChildren().clear();
-                    root.getChildren().add(buildError("Error", e.getMessage()));
+                    contentPane.getChildren().clear();
+                    contentPane.getChildren().add(buildError("Error", e.getMessage()));
                 });
             }
         }).start();
@@ -104,20 +155,10 @@ public class TimetableTabView {
         VBox.setVgrow(sp, Priority.ALWAYS);
 
         VBox content = new VBox(16);
-        content.setPadding(new Insets(24, 28, 24, 28));
+        content.setPadding(new Insets(16, 28, 24, 28));
         content.setFillWidth(true);
 
         Document doc = Jsoup.parse(html);
-
-        // Page heading
-        String heading = "Student Time Table";
-        Element h3 = doc.select("h3").first();
-        if (h3 != null && !h3.text().trim().isEmpty()) {
-            heading = h3.text().trim();
-        }
-        Label title = new Label(heading);
-        title.setStyle("-fx-font-size:18px;-fx-font-weight:800;-fx-text-fill:#1e293b;");
-        content.getChildren().add(title);
 
         // Find the timetable table — skip student info tables
         Element table = null;
@@ -140,7 +181,7 @@ public class TimetableTabView {
 
         if (table == null) {
             Label noData = new Label("No timetable data found.");
-            noData.setStyle("-fx-text-fill:#64748b;-fx-font-size:13px;-fx-padding:20;");
+            noData.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:13px;-fx-padding:20;");
             content.getChildren().add(noData);
             sp.setContent(content);
             return sp;
@@ -149,7 +190,7 @@ public class TimetableTabView {
         Elements rows = table.select("tr");
         if (rows.isEmpty()) {
             Label noData = new Label("Timetable is empty.");
-            noData.setStyle("-fx-text-fill:#64748b;-fx-font-size:13px;-fx-padding:20;");
+            noData.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:13px;-fx-padding:20;");
             content.getChildren().add(noData);
             sp.setContent(content);
             return sp;
@@ -165,8 +206,8 @@ public class TimetableTabView {
 
         // Build the grid
         VBox tableCard = new VBox(0);
-        tableCard.setStyle("-fx-background-color:white;-fx-background-radius:12;"
-                + "-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:12;"
+        tableCard.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:12;"
+                + "-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:12;"
                 + "-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.04),12,0,0,3);");
 
         // Wrap in a horizontal scroll pane for wide timetables
@@ -180,10 +221,10 @@ public class TimetableTabView {
         // Header row
         HBox headerBox = new HBox(0);
         headerBox.setStyle("-fx-background-color:#f1f5f9;-fx-padding:10 0;"
-                + "-fx-border-color:#e2e8f0;-fx-border-width:0 0 2 0;");
+                + "-fx-border-color: -color-border;-fx-border-width:0 0 2 0;");
         for (int i = 0; i < timeSlots.size(); i++) {
             Label hl = new Label(timeSlots.get(i));
-            hl.setStyle("-fx-font-size:10px;-fx-font-weight:700;-fx-text-fill:#475569;"
+            hl.setStyle("-fx-font-size:10px;-fx-font-weight:700;-fx-text-fill: -color-text-muted;"
                     + "-fx-padding:6 8;-fx-text-alignment:center;-fx-alignment:center;");
             hl.setAlignment(Pos.CENTER);
             double w = (i == 0) ? 90 : 110;
@@ -230,7 +271,7 @@ public class TimetableTabView {
                 if (colIndex == 0) {
                     // Day name column
                     Label dayLabel = new Label(cellText);
-                    dayLabel.setStyle("-fx-font-size:12px;-fx-font-weight:700;-fx-text-fill:#334155;"
+                    dayLabel.setStyle("-fx-font-size:12px;-fx-font-weight:700;-fx-text-fill: -color-text-main;"
                             + "-fx-padding:8 10;");
                     dayLabel.setMinWidth(cellWidth);
                     dayLabel.setPrefWidth(cellWidth);
@@ -411,13 +452,28 @@ public class TimetableTabView {
         icon.setStyle("-fx-font-size:28px;");
 
         Label titleLabel = new Label(title);
-        titleLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;");
+        titleLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
 
         Label msgLabel = new Label(message);
-        msgLabel.setStyle("-fx-font-size:12px;-fx-text-fill:#64748b;-fx-text-alignment:center;");
+        msgLabel.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-muted;-fx-text-alignment:center;");
         msgLabel.setWrapText(true);
 
         box.getChildren().addAll(icon, titleLabel, msgLabel);
         return box;
+    }
+
+    private HBox buildOfflineBanner() {
+        HBox banner = new HBox(8);
+        banner.setAlignment(Pos.CENTER);
+        banner.setPadding(new Insets(8, 16, 8, 16));
+        banner.setStyle("-fx-background-color:#FEF2F2;-fx-border-color:#FCA5A5;-fx-border-width:0 0 1 0;");
+        
+        Label icon = new Label("⚠");
+        icon.setStyle("-fx-text-fill:#DC2626;-fx-font-size:14px;");
+        Label text = new Label("Offline Mode: Displaying previously loaded data.");
+        text.setStyle("-fx-text-fill:#991B1B;-fx-font-size:12px;-fx-font-weight:bold;");
+        
+        banner.getChildren().addAll(icon, text);
+        return banner;
     }
 }

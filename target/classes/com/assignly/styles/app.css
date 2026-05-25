@@ -1,57 +1,77 @@
 /* ===================================================================
    Assignly Desktop – Cyprus × Sand Design System
-   Primary:  #004643  (Cyprus – dark teal)
-   Surface:  #F0EDEC  (Sand – warm off-white)
+   Primary:  -color-accent  (Cyprus – dark teal)
+   Surface:  -color-bg-main  (Sand – warm off--color-bg-card)
    =================================================================== */
 
 .root {
+    -color-bg-main: -color-bg-main;
+    -color-bg-card: -color-bg-card;
+    -color-bg-sidebar: -color-accent;
+    -color-text-main: -color-text-main;
+    -color-text-muted: #64748b;
+    -color-accent: -color-accent;
+    -color-border: #e2e8f0;
+
     -fx-font-family: "Segoe UI", system-ui, sans-serif;
     -fx-font-size: 13px;
-    -fx-base: #F0EDEC;
-    -fx-background-color: #F0EDEC;
+    -fx-base: -color-bg-main;
+    -fx-background-color: -color-bg-main;
+}
+
+.dark-theme {
+    -color-bg-main: #121212;
+    -color-bg-card: #1e1e1e;
+    -color-bg-sidebar: #0f172a;
+    -color-text-main: #f1f5f9;
+    -color-text-muted: #94a3b8;
+    -color-accent: #14b8a6; /* Teal accent */
+    -color-border: #334155;
+
+    -fx-background-color: -color-bg-main;
 }
 
 .app-root {
-    -fx-background-color: #F0EDEC;
+    -fx-background-color: -color-bg-main;
 }
 
 /* ---------- Typography ---------- */
 .title-text {
     -fx-font-size: 22px;
     -fx-font-weight: 700;
-    -fx-text-fill: #004643;
+    -fx-text-fill: -color-accent;
 }
 
 .subtitle-text {
     -fx-font-size: 15px;
     -fx-font-weight: 600;
-    -fx-text-fill: #004643;
+    -fx-text-fill: -color-accent;
 }
 
 .heading-label {
     -fx-font-size: 20px;
     -fx-font-weight: 700;
-    -fx-text-fill: #1a1a1a;
+    -fx-text-fill: -color-text-main;
 }
 
 .label {
-    -fx-text-fill: #3a3a3a;
+    -fx-text-fill: -color-text-main;
 }
 
 .muted-text {
-    -fx-text-fill: #888888;
+    -fx-text-fill: -color-text-muted;
     -fx-font-size: 12px;
 }
 
 /* ---------- Sidebar ---------- */
 .sidebar {
-    -fx-background-color: #004643;
+    -fx-background-color: -color-accent;
 }
 
 .sidebar-brand {
     -fx-font-size: 20px;
     -fx-font-weight: 800;
-    -fx-text-fill: #F0EDEC;
+    -fx-text-fill: -color-bg-main;
 }
 
 .sidebar-brand-sub {
@@ -73,12 +93,12 @@
 
 .sidebar-button:hover {
     -fx-background-color: rgba(240,237,236,0.08);
-    -fx-text-fill: #F0EDEC;
+    -fx-text-fill: -color-bg-main;
 }
 
 .sidebar-button-active {
     -fx-background-color: rgba(240,237,236,0.12);
-    -fx-text-fill: #F0EDEC;
+    -fx-text-fill: -color-bg-main;
     -fx-font-weight: 700;
 }
 
@@ -100,36 +120,36 @@
 
 /* ---------- Cards ---------- */
 .card {
-    -fx-background-color: white;
+    -fx-background-color: -color-bg-card;
     -fx-background-radius: 12;
     -fx-border-radius: 12;
-    -fx-border-color: #e0dbd9;
+    -fx-border-color: -color-border;
     -fx-border-width: 1;
 }
 
 .card-title {
     -fx-font-size: 13px;
     -fx-font-weight: 700;
-    -fx-text-fill: #004643;
+    -fx-text-fill: -color-accent;
 }
 
 .card-value {
     -fx-font-size: 28px;
     -fx-font-weight: 800;
-    -fx-text-fill: #004643;
+    -fx-text-fill: -color-accent;
 }
 
 .card-description {
     -fx-font-size: 11px;
-    -fx-text-fill: #999999;
+    -fx-text-fill: -color-text-muted;
 }
 
 /* ---------- Stat Card ---------- */
 .stat-card {
-    -fx-background-color: white;
+    -fx-background-color: -color-bg-card;
     -fx-background-radius: 12;
     -fx-border-radius: 12;
-    -fx-border-color: #e0dbd9;
+    -fx-border-color: -color-border;
     -fx-border-width: 1;
     -fx-padding: 18;
 }
@@ -143,8 +163,8 @@
 }
 
 .accent-button {
-    -fx-background-color: #004643;
-    -fx-text-fill: #F0EDEC;
+    -fx-background-color: -color-accent;
+    -fx-text-fill: -color-bg-main;
     -fx-font-weight: 600;
     -fx-background-radius: 8;
 }
@@ -159,8 +179,8 @@
 
 .outline-button {
     -fx-background-color: transparent;
-    -fx-text-fill: #004643;
-    -fx-border-color: #004643;
+    -fx-text-fill: -color-accent;
+    -fx-border-color: -color-accent;
     -fx-border-width: 1;
     -fx-border-radius: 8;
     -fx-background-radius: 8;
@@ -173,7 +193,7 @@
 
 .danger-button {
     -fx-background-color: #d94452;
-    -fx-text-fill: white;
+    -fx-text-fill: -color-bg-card;
     -fx-background-radius: 8;
 }
 
@@ -188,15 +208,15 @@
 }
 
 .ghost-button:hover {
-    -fx-text-fill: #004643;
+    -fx-text-fill: -color-accent;
 }
 
 /* ---------- Text Fields ---------- */
 .text-field, .password-field {
-    -fx-background-color: white;
-    -fx-text-fill: #1a1a1a;
+    -fx-background-color: -color-bg-card;
+    -fx-text-fill: -color-text-main;
     -fx-prompt-text-fill: #aaaaaa;
-    -fx-border-color: #d5d0ce;
+    -fx-border-color: -color-border;
     -fx-border-width: 1;
     -fx-border-radius: 8;
     -fx-background-radius: 8;
@@ -205,7 +225,7 @@
 }
 
 .text-field:focused, .password-field:focused {
-    -fx-border-color: #004643;
+    -fx-border-color: -color-accent;
 }
 
 /* ---------- Check Box ---------- */
@@ -214,19 +234,19 @@
 }
 
 .check-box .box {
-    -fx-background-color: white;
-    -fx-border-color: #d5d0ce;
+    -fx-background-color: -color-bg-card;
+    -fx-border-color: -color-border;
     -fx-border-radius: 4;
     -fx-background-radius: 4;
 }
 
 .check-box:selected .box {
-    -fx-background-color: #004643;
-    -fx-border-color: #004643;
+    -fx-background-color: -color-accent;
+    -fx-border-color: -color-accent;
 }
 
 .check-box:selected .mark {
-    -fx-background-color: white;
+    -fx-background-color: -color-bg-card;
 }
 
 /* ---------- Scroll Pane ---------- */
@@ -243,7 +263,7 @@
 }
 
 .scroll-bar .thumb {
-    -fx-background-color: #d5d0ce;
+    -fx-background-color: -color-border;
     -fx-background-radius: 4;
 }
 
@@ -271,7 +291,7 @@
 
 .list-view .list-cell {
     -fx-background-color: transparent;
-    -fx-text-fill: #3a3a3a;
+    -fx-text-fill: -color-text-main;
     -fx-padding: 8 12;
     -fx-border-color: #ebe7e5;
     -fx-border-width: 0 0 1 0;
@@ -283,7 +303,7 @@
 
 .list-view .list-cell:filled:selected {
     -fx-background-color: rgba(0,70,67,0.08);
-    -fx-text-fill: #004643;
+    -fx-text-fill: -color-accent;
 }
 
 .list-view .list-cell:empty {
@@ -297,23 +317,23 @@
 
 /* ---------- Slider ---------- */
 .slider .track {
-    -fx-background-color: #d5d0ce;
+    -fx-background-color: -color-border;
     -fx-background-radius: 4;
 }
 
 .slider .thumb {
-    -fx-background-color: #004643;
+    -fx-background-color: -color-accent;
     -fx-background-radius: 8;
 }
 
 /* ---------- Progress ---------- */
 .progress-bar .track {
-    -fx-background-color: #e0dbd9;
+    -fx-background-color: -color-border;
     -fx-background-radius: 4;
 }
 
 .progress-bar .bar {
-    -fx-background-color: #004643;
+    -fx-background-color: -color-accent;
     -fx-background-radius: 4;
 }
 
@@ -325,8 +345,8 @@
 
 /* ---------- Tooltip ---------- */
 .tooltip {
-    -fx-background-color: #004643;
-    -fx-text-fill: #F0EDEC;
+    -fx-background-color: -color-accent;
+    -fx-text-fill: -color-bg-main;
     -fx-background-radius: 6;
     -fx-padding: 6 10;
     -fx-font-size: 12px;
@@ -334,30 +354,30 @@
 
 /* ---------- Login Screen ---------- */
 .login-card {
-    -fx-background-color: white;
+    -fx-background-color: -color-bg-card;
     -fx-background-radius: 16;
     -fx-border-radius: 16;
-    -fx-border-color: #e0dbd9;
+    -fx-border-color: -color-border;
     -fx-border-width: 1;
 }
 
 .login-title {
     -fx-font-size: 28px;
     -fx-font-weight: 800;
-    -fx-text-fill: #004643;
+    -fx-text-fill: -color-accent;
 }
 
 .login-subtitle {
     -fx-font-size: 12px;
-    -fx-text-fill: #999999;
+    -fx-text-fill: -color-text-muted;
 }
 
 /* ---------- Welcome Card ---------- */
 .welcome-card {
-    -fx-background-color: white;
+    -fx-background-color: -color-bg-card;
     -fx-background-radius: 12;
     -fx-border-radius: 12;
-    -fx-border-color: #e0dbd9;
+    -fx-border-color: -color-border;
     -fx-border-width: 1;
     -fx-padding: 20;
 }
@@ -365,18 +385,18 @@
 .welcome-name {
     -fx-font-size: 20px;
     -fx-font-weight: 700;
-    -fx-text-fill: #1a1a1a;
+    -fx-text-fill: -color-text-main;
 }
 
 .welcome-reg {
     -fx-font-size: 12px;
-    -fx-text-fill: #004643;
+    -fx-text-fill: -color-accent;
     -fx-font-weight: 500;
 }
 
 .welcome-message {
     -fx-font-size: 13px;
-    -fx-text-fill: #888888;
+    -fx-text-fill: -color-text-muted;
     -fx-wrap-text: true;
 }
 
@@ -388,18 +408,18 @@
 .loading-label {
     -fx-font-size: 14px;
     -fx-font-weight: 600;
-    -fx-text-fill: #004643;
+    -fx-text-fill: -color-accent;
 }
 
 /* ---------- Content Area ---------- */
 .content-area {
-    -fx-background-color: #F0EDEC;
+    -fx-background-color: -color-bg-main;
 }
 
 /* ---------- Top Bar ---------- */
 .top-bar {
-    -fx-background-color: white;
-    -fx-border-color: #e0dbd9;
+    -fx-background-color: -color-bg-card;
+    -fx-border-color: -color-border;
     -fx-border-width: 0 0 1 0;
     -fx-padding: 10 20;
 }
@@ -407,15 +427,69 @@
 .top-bar-title {
     -fx-font-size: 16px;
     -fx-font-weight: 700;
-    -fx-text-fill: #004643;
+    -fx-text-fill: -color-accent;
 }
 
 /* ---------- Utility ---------- */
 .accent-text {
-    -fx-text-fill: #004643;
+    -fx-text-fill: -color-accent;
 }
 
 .error-text {
     -fx-text-fill: #d94452;
     -fx-font-size: 12px;
 }
+
+/* ---------- Charts ---------- */
+.chart-plot-background {
+    -fx-background-color: transparent;
+}
+
+.chart-vertical-grid-lines,
+.chart-horizontal-grid-lines {
+    -fx-stroke: rgba(0, 0, 0, 0.06);
+}
+
+.chart-alternative-row-fill {
+    -fx-fill: transparent;
+}
+
+.chart-legend {
+    -fx-background-color: transparent;
+    -fx-padding: 6 0 0 0;
+}
+
+.chart-legend-item-symbol {
+    -fx-background-radius: 4;
+    -fx-padding: 5;
+}
+
+.default-color0.chart-series-line { -fx-stroke: #004643; -fx-stroke-width: 3px; }
+.default-color1.chart-series-line { -fx-stroke: #14b8a6; -fx-stroke-width: 3px; }
+.default-color0.chart-line-symbol { -fx-background-color: #004643, white; -fx-background-insets: 0, 2; -fx-background-radius: 5px; -fx-padding: 5px; }
+.default-color1.chart-line-symbol { -fx-background-color: #14b8a6, white; -fx-background-insets: 0, 2; -fx-background-radius: 5px; -fx-padding: 5px; }
+
+.default-color0.chart-pie { -fx-pie-color: #004643; }
+.default-color1.chart-pie { -fx-pie-color: #14b8a6; }
+.default-color2.chart-pie { -fx-pie-color: #0ea5e9; }
+.default-color3.chart-pie { -fx-pie-color: #f59e0b; }
+.default-color4.chart-pie { -fx-pie-color: #8b5cf6; }
+.default-color5.chart-pie { -fx-pie-color: #ef4444; }
+.default-color6.chart-pie { -fx-pie-color: #10b981; }
+.default-color7.chart-pie { -fx-pie-color: #ec4899; }
+
+.axis-label {
+    -fx-text-fill: -color-text-muted;
+    -fx-font-size: 11px;
+}
+
+.axis .tick-label {
+    -fx-fill: -color-text-muted;
+}
+
+/* Dark mode chart overrides */
+.dark-theme .chart-vertical-grid-lines,
+.dark-theme .chart-horizontal-grid-lines {
+    -fx-stroke: rgba(255, 255, 255, 0.08);
+}
+

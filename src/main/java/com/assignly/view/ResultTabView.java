@@ -27,7 +27,7 @@ public class ResultTabView {
     public ResultTabView(AppContext context) {
         this.context = context;
         buildLoading();
-        fetchResultData();
+        loadData(false);
     }
 
     public VBox getRoot() { return root; }
@@ -47,12 +47,26 @@ public class ResultTabView {
         root.getChildren().add(loading);
     }
 
-    private void fetchResultData() {
+    private void loadData(boolean forceRefresh) {
         new Thread(() -> {
             try {
-                String html = context.portalRepository().fetchPageHtml("StudentResultCard.aspx");
+                String html = null;
+                boolean isOffline = false;
+
+                if (!forceRefresh) {
+                    html = context.dataCacheService().getCachedHtml("StudentResultCard.aspx").orElse(null);
+                }
+
                 if (html == null) {
-                    showError("Unable to load Result Card", "Failed to connect to the portal.");
+                    html = context.fetchAndCacheHtml("StudentResultCard.aspx");
+                    if (html == null) {
+                        html = context.dataCacheService().getCachedHtml("StudentResultCard.aspx").orElse(null);
+                        isOffline = true;
+                    }
+                }
+
+                if (html == null) {
+                    showError("Unable to load Result Card", "Failed to connect to the portal and no offline data available.");
                     return;
                 }
 
@@ -133,8 +147,10 @@ public class ResultTabView {
                     }
                 }
 
+                boolean finalOffline = isOffline;
                 Platform.runLater(() -> {
                     root.getChildren().clear();
+                    if (finalOffline) root.getChildren().add(buildOfflineBanner());
                     if (resultTables.isEmpty()) {
                         root.getChildren().add(buildEmptyView());
                     } else {
@@ -156,24 +172,24 @@ public class ResultTabView {
         VBox.setVgrow(content, Priority.ALWAYS);
 
         Label title = new Label("Result Card");
-        title.setStyle("-fx-font-size:24px;-fx-font-weight:800;-fx-text-fill:#1e293b;");
+        title.setStyle("-fx-font-size:24px;-fx-font-weight:800;-fx-text-fill: -color-text-main;");
         content.getChildren().add(title);
 
         VBox card = new VBox(12);
         card.setAlignment(Pos.CENTER);
         card.setPadding(new Insets(32));
-        card.setStyle("-fx-background-color:white;-fx-background-radius:8;"
-                + "-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;"
+        card.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;"
+                + "-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;"
                 + "-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
 
         Label icon = new Label("🎓");
         icon.setStyle("-fx-font-size:32px;");
 
         Label noResultLabel = new Label("No Result Card Available");
-        noResultLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#475569;");
+        noResultLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-muted;");
         
         Label descLabel = new Label("There are currently no transcripts available for your profile.");
-        descLabel.setStyle("-fx-font-size:12px;-fx-text-fill:#64748b;");
+        descLabel.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-muted;");
 
         card.getChildren().addAll(icon, noResultLabel, descLabel);
         content.getChildren().add(card);
@@ -186,19 +202,32 @@ public class ResultTabView {
         wrapper.setFillWidth(true);
         VBox.setVgrow(wrapper, Priority.ALWAYS);
 
-        // Header section
-        VBox headerBox = new VBox(4);
-        headerBox.setPadding(new Insets(24, 28, 16, 28));
-        headerBox.setStyle("-fx-background-color:white;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+        HBox headerRow = new HBox();
+        headerRow.setAlignment(Pos.CENTER_LEFT);
+        headerRow.setPadding(new Insets(24, 28, 16, 28));
+        headerRow.setStyle("-fx-background-color: -color-bg-card;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
         
+        VBox titleBox = new VBox(4);
         Label title = new Label("Academic Result Card");
-        title.setStyle("-fx-font-size:24px;-fx-font-weight:800;-fx-text-fill:#1e293b;");
+        title.setStyle("-fx-font-size:24px;-fx-font-weight:800;-fx-text-fill: -color-text-main;");
         
         Label subTitle = new Label("Semester Transcripts");
-        subTitle.setStyle("-fx-font-size:13px;-fx-text-fill:#64748b;-fx-font-weight:600;");
+        subTitle.setStyle("-fx-font-size:13px;-fx-text-fill: -color-text-muted;-fx-font-weight:600;");
+        titleBox.getChildren().addAll(title, subTitle);
         
-        headerBox.getChildren().addAll(title, subTitle);
-        wrapper.getChildren().add(headerBox);
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        
+        Button refreshBtn = new Button("🔄");
+        refreshBtn.setStyle("-fx-background-color:transparent;-fx-font-size:18px;-fx-cursor:hand;");
+        refreshBtn.setOnAction(e -> {
+            root.getChildren().clear();
+            buildLoading();
+            loadData(true);
+        });
+        
+        headerRow.getChildren().addAll(titleBox, spacer, refreshBtn);
+        wrapper.getChildren().add(headerRow);
 
         // Content section
         VBox content = new VBox(32); // Generous spacing between semester tables
@@ -284,13 +313,28 @@ public class ResultTabView {
         icon.setStyle("-fx-font-size:28px;");
 
         Label titleLabel = new Label(title);
-        titleLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;");
+        titleLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
 
         Label msgLabel = new Label(message);
-        msgLabel.setStyle("-fx-font-size:12px;-fx-text-fill:#64748b;-fx-text-alignment:center;");
+        msgLabel.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-muted;-fx-text-alignment:center;");
         msgLabel.setWrapText(true);
 
         box.getChildren().addAll(icon, titleLabel, msgLabel);
         return box;
+    }
+
+    private HBox buildOfflineBanner() {
+        HBox banner = new HBox(8);
+        banner.setAlignment(Pos.CENTER);
+        banner.setPadding(new Insets(8, 16, 8, 16));
+        banner.setStyle("-fx-background-color:#FEF2F2;-fx-border-color:#FCA5A5;-fx-border-width:0 0 1 0;");
+        
+        Label icon = new Label("⚠");
+        icon.setStyle("-fx-text-fill:#DC2626;-fx-font-size:14px;");
+        Label text = new Label("Offline Mode: Displaying previously loaded data.");
+        text.setStyle("-fx-text-fill:#991B1B;-fx-font-size:12px;-fx-font-weight:bold;");
+        
+        banner.getChildren().addAll(icon, text);
+        return banner;
     }
 }

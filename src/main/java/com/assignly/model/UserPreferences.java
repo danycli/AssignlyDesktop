@@ -4,15 +4,10 @@ public class UserPreferences {
     private String theme;
     private boolean autoLogin;
     private boolean notificationsEnabled;
-    private double zoomLevel;
-    private boolean darkOverlay;
-
-    public UserPreferences(String theme, boolean autoLogin, boolean notificationsEnabled, double zoomLevel, boolean darkOverlay) {
+    public UserPreferences(String theme, boolean autoLogin, boolean notificationsEnabled) {
         this.theme = theme;
         this.autoLogin = autoLogin;
         this.notificationsEnabled = notificationsEnabled;
-        this.zoomLevel = zoomLevel;
-        this.darkOverlay = darkOverlay;
     }
 
     public String getTheme() {
@@ -39,19 +34,5 @@ public class UserPreferences {
         this.notificationsEnabled = notificationsEnabled;
     }
 
-    public double getZoomLevel() {
-        return zoomLevel;
-    }
 
-    public void setZoomLevel(double zoomLevel) {
-        this.zoomLevel = zoomLevel;
-    }
-
-    public boolean isDarkOverlay() {
-        return darkOverlay;
-    }
-
-    public void setDarkOverlay(boolean darkOverlay) {
-        this.darkOverlay = darkOverlay;
-    }
 }

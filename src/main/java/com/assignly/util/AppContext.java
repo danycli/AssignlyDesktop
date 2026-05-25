@@ -173,6 +173,25 @@ public class AppContext {
 
         setScene(mainLayout, "Assignly Desktop");
         navigateTo("dashboard");
+
+        // Background Pre-fetcher
+        new Thread(() -> {
+            fetchAndCacheHtml("Dashboard.aspx");
+            fetchAndCacheHtml("CoursePortal.aspx");
+            fetchAndCacheHtml("Timetable.aspx");
+            fetchAndCacheHtml("FeeChallans.aspx");
+            fetchAndCacheHtml("FeeHistorySFMS.aspx");
+            fetchAndCacheHtml("StudentResultCard.aspx");
+            fetchAndCacheHtml("DateSheet.aspx");
+            fetchAndCacheHtml("Summary.aspx");
+            fetchAndCacheHtml("classproceedings.aspx");
+            fetchAndCacheHtml("QAMarks.aspx");
+            fetchAndCacheHtml("EntryCouponSelect.aspx");
+            fetchAndCacheHtml("EntryCouponWithQR.aspx");
+            fetchAndCacheHtml("AddCellEmailInfo.aspx");
+            fetchAndCacheHtml("LoginHistory.aspx");
+            fetchAndCacheHtml("scholarship/ViewScholarshipStatuse.aspx");
+        }).start();
     }
 
     private VBox buildSidebar() {
@@ -191,13 +210,13 @@ public class AppContext {
 
         Button dashboard = navBtn("Dashboard", "dashboard");
         Button courses = navBtn("Courses", "courses");
-        
         Button portal = navBtn("Course Portal", "portal");
         Button examCoupon = navBtn("Exam Entry Coupon", "examcoupon");
-
+        Button mobileApp = navBtn("Mobile App Activation", "mobileapp");
+        Button result = navBtn("Result", "result");
         Button timetable = navBtn("Timetable", "timetable");
         Button fee = navBtn("Fee", "fee");
-        Button result = navBtn("Result", "result");
+        Button scholarship = navBtn("Scholarship", "scholarship");
         Button dateSheet = navBtn("Date Sheet", "datesheet");
         Button settings = navBtn("Settings", "settings");
 
@@ -218,8 +237,8 @@ public class AppContext {
             showLoginScreen();
         });
 
-        sb.getChildren().addAll(brandBox, dashboard, courses, portal, examCoupon, timetable, fee, result,
-                dateSheet, new Separator(), settings, spacer, userLabel, logout);
+        sb.getChildren().addAll(brandBox, dashboard, courses, portal, examCoupon, mobileApp,
+                result, timetable, fee, scholarship, dateSheet, new Separator(), settings, spacer, userLabel, logout);
         return sb;
     }
 
@@ -249,28 +268,102 @@ public class AppContext {
     public void navigateTo(String tabId) {
         updateActiveNavState(sidebar, tabId);
 
-        contentArea.getChildren().clear();
-        switch (tabId) {
-            case "dashboard" -> contentArea.getChildren().add(new DashboardTabView(this).getRoot());
-            case "courses" -> contentArea.getChildren().add(new CoursesTabView(this).getRoot());
-            case "portal" -> contentArea.getChildren().add(new CoursePortalTabView(this).getRoot());
-            case "timetable" -> contentArea.getChildren().add(new TimetableTabView(this).getRoot());
-            case "examcoupon" -> contentArea.getChildren().add(new ExamCouponTabView(this).getRoot());
-            case "fee" -> contentArea.getChildren().add(new FeeTabView(this).getRoot());
-            case "result" -> contentArea.getChildren().add(new ResultTabView(this).getRoot());
-            case "datesheet" -> contentArea.getChildren().add(new DateSheetTabView(this).getRoot());
-            case "settings" -> contentArea.getChildren().add(new SettingsTabView(this).getRoot());
+        javafx.scene.Node newTab = switch (tabId) {
+            case "dashboard" -> new DashboardTabView(this).getRoot();
+            case "courses" -> new CoursesTabView(this).getRoot();
+            case "portal" -> new CoursePortalTabView(this).getRoot();
+            case "examcoupon" -> new ExamCouponTabView(this).getRoot();
+            case "mobileapp" -> new MobileAppActivationTabView(this).getRoot();
+            case "result" -> new ResultTabView(this).getRoot();
+            case "timetable" -> new TimetableTabView(this).getRoot();
+            case "fee" -> new FeeTabView(this).getRoot();
+            case "scholarship" -> new ScholarshipTabView(this).getRoot();
+            case "datesheet" -> new DateSheetTabView(this).getRoot();
+            case "settings" -> new SettingsTabView(this).getRoot();
+            default -> null;
+        };
+
+        if (newTab != null) {
+            contentArea.getChildren().setAll(newTab);
+            
+            javafx.animation.FadeTransition ft = new javafx.animation.FadeTransition(javafx.util.Duration.millis(250), newTab);
+            ft.setFromValue(0.0);
+            ft.setToValue(1.0);
+            
+            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(250), newTab);
+            tt.setFromY(15);
+            tt.setToY(0);
+            
+            javafx.animation.ParallelTransition pt = new javafx.animation.ParallelTransition(ft, tt);
+            pt.play();
         }
     }
 
+    private double xOffset = 0;
+    private double yOffset = 0;
+
     // ---------- Scene ----------
-    public void setScene(Parent root, String title) {
-        root.getStyleClass().add("app-root");
-        Scene scene = new Scene(root, 1200, 750);
+    public void setScene(Parent contentRoot, String title) {
+        contentRoot.getStyleClass().add("app-root");
+
+        HBox titleBar = new HBox();
+        titleBar.setAlignment(Pos.CENTER_RIGHT);
+        titleBar.setMinHeight(30);
+        titleBar.setStyle("-fx-background-color: #004643;");
+        
+        Label windowTitle = new Label(title);
+        windowTitle.setStyle("-fx-text-fill: white; -fx-font-weight: bold; -fx-padding: 0 0 0 10;");
+        HBox.setHgrow(windowTitle, Priority.ALWAYS);
+        windowTitle.setMaxWidth(Double.MAX_VALUE);
+
+        Button minBtn = new Button("—");
+        minBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-cursor: hand;");
+        minBtn.setOnAction(e -> stage.setIconified(true));
+
+        Button maxBtn = new Button("☐");
+        maxBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-cursor: hand;");
+        maxBtn.setOnAction(e -> stage.setMaximized(!stage.isMaximized()));
+
+        Button closeBtn = new Button("✕");
+        closeBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-cursor: hand;");
+        closeBtn.setOnMouseEntered(e -> closeBtn.setStyle("-fx-background-color: #ef4444; -fx-text-fill: white; -fx-cursor: hand;"));
+        closeBtn.setOnMouseExited(e -> closeBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-cursor: hand;"));
+        closeBtn.setOnAction(e -> Platform.exit());
+
+        titleBar.getChildren().addAll(windowTitle, minBtn, maxBtn, closeBtn);
+
+        titleBar.setOnMousePressed(event -> {
+            xOffset = event.getSceneX();
+            yOffset = event.getSceneY();
+        });
+        titleBar.setOnMouseDragged(event -> {
+            stage.setX(event.getScreenX() - xOffset);
+            stage.setY(event.getScreenY() - yOffset);
+        });
+
+        BorderPane windowContainer = new BorderPane();
+        windowContainer.setTop(titleBar);
+        windowContainer.setCenter(contentRoot);
+        // Ensure root styling is applied to the wrapper to prevent unstyled borders
+        windowContainer.setStyle("-fx-border-color: #004643; -fx-border-width: 1;");
+
+        Scene scene = new Scene(windowContainer, 1200, 750);
         URL css = getClass().getResource("/com/assignly/styles/app.css");
         if (css != null) scene.getStylesheets().add(css.toExternalForm());
+        
+        // Dark mode hook (we will implement this fully later)
+        applyTheme(scene);
+
         stage.setTitle(title);
         stage.setScene(scene);
+    }
+    
+    public void applyTheme(Scene scene) {
+        if ("DARK".equalsIgnoreCase(preferencesService.loadPreferences().getTheme())) {
+            scene.getRoot().getStyleClass().add("dark-theme");
+        } else {
+            scene.getRoot().getStyleClass().remove("dark-theme");
+        }
     }
 
     // ---------- Accessors ----------
@@ -288,6 +381,14 @@ public class AppContext {
     }
     public String getSessionRegistration() { return sessionRegistration; }
     public String getSessionPassword() { return sessionPassword; }
+    public String fetchAndCacheHtml(String relativeUrl) {
+        String html = portalRepository.fetchPageHtml(relativeUrl);
+        if (html != null) {
+            dataCacheService.cacheHtml(relativeUrl, html);
+        }
+        return html;
+    }
+
     public void clearSessionCredentials() {
         this.sessionRegistration = null;
         this.sessionPassword = null;

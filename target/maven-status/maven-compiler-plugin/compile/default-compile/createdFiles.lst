@@ -1,3 +1,4 @@
+com\assignly\service\PortalRepository$GpaHistoryData.class
 com\assignly\service\PortalRepository.class
 com\assignly\util\UiUtil.class
 com\assignly\service\PortalService.class
@@ -10,10 +11,12 @@ com\assignly\service\PortalRepository$LoginResult$Success.class
 com\assignly\model\PortalSnapshot$PortalAssignment.class
 com\assignly\service\PortalRepository$InstructionFilesResult$Success.class
 com\assignly\service\PortalRepository$InstructionFilesResult.class
+com\assignly\service\PortalRepository$LoginHistoryEntry.class
 com\assignly\service\PortalRepository$UploadResult.class
 com\assignly\view\ResultTabView.class
 com\assignly\service\PortalRepository$InstructionFilesResult$NetworkError.class
 com\assignly\view\CoursesTabView.class
+com\assignly\view\ScholarshipTabView.class
 com\assignly\view\LoginView.class
 com\assignly\service\PortalRepository$PostBackInfo.class
 com\assignly\database\DatabaseManager.class
@@ -39,6 +42,7 @@ com\assignly\view\DateSheetTabView.class
 com\assignly\service\PortalRepository$InstructionFilesResult$Error.class
 com\assignly\view\FeeTabView.class
 com\assignly\Main.class
+com\assignly\service\PortalRepository$ProfileInfo.class
 com\assignly\service\PortalRepository$DownloadResult$Rejected.class
 com\assignly\service\PortalRepository$PostBackLink.class
 com\assignly\model\Assignment.class
@@ -48,6 +52,7 @@ com\assignly\model\User.class
 com\assignly\view\TimetableTabView.class
 com\assignly\service\PortalRepository$UploadResult$Success.class
 com\assignly\service\PortalRepository$LoginResult.class
+com\assignly\view\MobileAppActivationTabView.class
 com\assignly\view\ResultTabView$SemesterResultTable.class
 com\assignly\view\SettingsTabView.class
 com\assignly\view\WebPortalTabView.class

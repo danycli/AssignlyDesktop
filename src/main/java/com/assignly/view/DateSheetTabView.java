@@ -7,6 +7,7 @@ import javafx.geometry.Pos;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Button;
 import javafx.scene.layout.*;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -38,13 +39,45 @@ public class DateSheetTabView {
 
     public record ExamEntry(String course, String date, String time, String venue) {}
 
+    private StackPane contentPane;
+
     public DateSheetTabView(AppContext context) {
         this.context = context;
-        buildLoading();
-        fetchDateSheet();
+        buildShell();
+        loadDateSheet(false);
+    }
+
+    private void buildShell() {
+        root.setFillWidth(true);
+        
+        HBox headerRow = new HBox();
+        headerRow.setAlignment(Pos.CENTER_LEFT);
+        headerRow.setPadding(new Insets(24, 28, 16, 28));
+        headerRow.setStyle("-fx-background-color: -color-bg-card;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
+
+        Label heading = new Label("Date Sheet");
+        heading.setStyle("-fx-font-size:24px;-fx-font-weight:800;-fx-text-fill: -color-text-main;");
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button refreshBtn = new Button("🔄");
+        refreshBtn.setStyle("-fx-background-color:transparent;-fx-font-size:18px;-fx-cursor:hand;");
+        refreshBtn.setOnAction(e -> {
+            contentPane.getChildren().clear();
+            loadDateSheet(true);
+        });
+
+        headerRow.getChildren().addAll(heading, spacer, refreshBtn);
+        root.getChildren().add(headerRow);
+
+        contentPane = new StackPane();
+        VBox.setVgrow(contentPane, Priority.ALWAYS);
+        root.getChildren().add(contentPane);
     }
 
     private void buildLoading() {
+        contentPane.getChildren().clear();
         StackPane loading = new StackPane();
         loading.setStyle("-fx-background-color: #F0EDEC;");
         VBox box = new VBox(10);
@@ -55,17 +88,27 @@ public class DateSheetTabView {
         msg.setStyle("-fx-text-fill: #888888; -fx-font-size: 13px;");
         box.getChildren().addAll(spinner, msg);
         loading.getChildren().add(box);
-        VBox.setVgrow(loading, Priority.ALWAYS);
-        root.getChildren().add(loading);
+        contentPane.getChildren().add(loading);
     }
 
-    private void fetchDateSheet() {
+    private void loadDateSheet(boolean forceRefresh) {
+        buildLoading();
         new Thread(() -> {
             List<ExamEntry> entries = new ArrayList<>();
+            boolean isOffline = false;
 
             // 1. Try dedicated date sheet pages
             for (String page : DATE_SHEET_PAGES) {
-                String html = context.portalRepository().fetchPageHtml(page);
+                String html = null;
+                if (!forceRefresh) html = context.dataCacheService().getCachedHtml(page).orElse(null);
+                
+                if (html == null) {
+                    html = context.fetchAndCacheHtml(page);
+                    if (html == null) {
+                        html = context.dataCacheService().getCachedHtml(page).orElse(null);
+                        isOffline = true;
+                    }
+                }
                 if (html != null && !html.isBlank()) {
                     entries = parseExamTables(html);
                     if (!entries.isEmpty()) break;
@@ -74,16 +117,25 @@ public class DateSheetTabView {
 
             // 2. Fallback: parse Dashboard.aspx for any non-profile tables
             if (entries.isEmpty()) {
-                String dashHtml = context.portalRepository().fetchPageHtml("Dashboard.aspx");
+                String dashHtml = null;
+                if (!forceRefresh) dashHtml = context.dataCacheService().getCachedHtml("Dashboard.aspx").orElse(null);
+                if (dashHtml == null) {
+                    dashHtml = context.fetchAndCacheHtml("Dashboard.aspx");
+                    if (dashHtml == null) {
+                        dashHtml = context.dataCacheService().getCachedHtml("Dashboard.aspx").orElse(null);
+                        isOffline = true;
+                    }
+                }
                 if (dashHtml != null) {
                     entries = parseDashboardForDateSheet(dashHtml);
                 }
             }
 
             final List<ExamEntry> finalEntries = entries;
+            final boolean finalOffline = isOffline;
             Platform.runLater(() -> {
-                root.getChildren().clear();
-                buildContent(finalEntries);
+                contentPane.getChildren().clear();
+                buildContent(finalEntries, finalOffline);
             });
         }).start();
     }
@@ -192,14 +244,14 @@ public class DateSheetTabView {
         return (idx >= 0 && idx < cells.size()) ? cells.get(idx).text().trim() : "";
     }
 
-    private void buildContent(List<ExamEntry> entries) {
+    private void buildContent(List<ExamEntry> entries, boolean isOffline) {
         VBox content = new VBox(16);
-        content.setPadding(new Insets(24, 28, 24, 28));
+        content.setPadding(new Insets(16, 28, 24, 28));
         content.setFillWidth(true);
 
-        Label heading = new Label("Date Sheet");
-        heading.getStyleClass().add("heading-label");
-        content.getChildren().add(heading);
+        if (isOffline) {
+            content.getChildren().add(buildOfflineBanner());
+        }
 
         if (entries.isEmpty()) {
             Label noData = new Label("No date sheet data available at this time.");
@@ -241,9 +293,24 @@ public class DateSheetTabView {
         ScrollPane scroll = new ScrollPane(content);
         scroll.setFitToWidth(true);
         scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        VBox.setVgrow(scroll, Priority.ALWAYS);
-        root.getChildren().add(scroll);
+        scroll.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
+        contentPane.getChildren().add(scroll);
     }
 
     public VBox getRoot() { return root; }
+
+    private HBox buildOfflineBanner() {
+        HBox banner = new HBox(8);
+        banner.setAlignment(Pos.CENTER);
+        banner.setPadding(new Insets(8, 16, 8, 16));
+        banner.setStyle("-fx-background-color:#FEF2F2;-fx-border-color:#FCA5A5;-fx-border-width:0 0 1 0;");
+        
+        Label icon = new Label("⚠");
+        icon.setStyle("-fx-text-fill:#DC2626;-fx-font-size:14px;");
+        Label text = new Label("Offline Mode: Displaying previously loaded data.");
+        text.setStyle("-fx-text-fill:#991B1B;-fx-font-size:12px;-fx-font-weight:bold;");
+        
+        banner.getChildren().addAll(icon, text);
+        return banner;
+    }
 }

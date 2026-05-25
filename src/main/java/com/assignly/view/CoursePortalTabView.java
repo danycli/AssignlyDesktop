@@ -79,7 +79,7 @@ public class CoursePortalTabView {
 
     private String tabStyle(boolean on) {
         return on ? "-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:600;-fx-background-radius:6;-fx-padding:6 12;"
-                  : "-fx-background-color:white;-fx-text-fill:#666;-fx-font-size:11px;-fx-font-weight:500;-fx-background-radius:6;-fx-padding:6 12;-fx-border-color:#d5d0ce;-fx-border-radius:6;-fx-border-width:1;";
+                  : "-fx-background-color: -color-bg-card;-fx-text-fill:#666;-fx-font-size:11px;-fx-font-weight:500;-fx-background-radius:6;-fx-padding:6 12;-fx-border-color:#d5d0ce;-fx-border-radius:6;-fx-border-width:1;";
     }
 
     private void loadTab(String tabKey) {
@@ -201,7 +201,7 @@ public class CoursePortalTabView {
         }
 
         Label subHeading = new Label(headingText);
-        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;-fx-padding:0 0 4 0;");
+        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;-fx-padding:0 0 4 0;");
         content.getChildren().add(subHeading);
 
         Element table = findMainGridTable(doc, "DataContent_gvCTSdashboard");
@@ -224,13 +224,13 @@ public class CoursePortalTabView {
 
     private void renderEmptyState(VBox content) {
         Label empty = new Label("No active or completed MCQ tests found.");
-        empty.setStyle("-fx-text-fill:#64748b;-fx-font-size:12px;-fx-padding:10 0;");
+        empty.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:12px;-fx-padding:10 0;");
         content.getChildren().add(empty);
     }
 
     private VBox buildNativeMcqTable(Elements rows) {
         VBox card = new VBox(0);
-        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        card.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
         
         Element headerRow = rows.first();
         if (headerRow == null) return card;
@@ -242,10 +242,10 @@ public class CoursePortalTabView {
         }
 
         HBox headerBox = new HBox(0);
-        headerBox.setStyle("-fx-background-color:#f8fafc;-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+        headerBox.setStyle("-fx-background-color: -color-bg-main;-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
         for (int i = 0; i < headers.size(); i++) {
             Label hl = new Label(headers.get(i));
-            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill: -color-text-muted;-fx-padding:0 12;");
             double w = mcqColW(headers.get(i), i, headers.size());
             hl.setMinWidth(w);
             hl.setMaxWidth(w);
@@ -260,7 +260,7 @@ public class CoursePortalTabView {
 
             HBox dataRow = new HBox(0);
             String bg = (r % 2 == 0) ? "#f8fafc" : "white";
-            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
 
             for (int c = 0; c < cells.size(); c++) {
                 if (c >= headers.size()) break;
@@ -290,7 +290,7 @@ public class CoursePortalTabView {
                 } else {
                     Label cl = new Label(txt);
                     cl.setWrapText(true);
-                    cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                    cl.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-main;-fx-padding:0 12;");
                     cl.setMinWidth(w);
                     cl.setMaxWidth(w);
                     cellNode = cl;
@@ -379,7 +379,7 @@ public class CoursePortalTabView {
 
         Button backBtn = new Button("← Back to MCQ Tests List");
         backBtn.setCursor(javafx.scene.Cursor.HAND);
-        backBtn.setStyle("-fx-background-color:white;-fx-text-fill:#004643;-fx-border-color:#004643;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
+        backBtn.setStyle("-fx-background-color: -color-bg-card;-fx-text-fill:#004643;-fx-border-color:#004643;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
         backBtn.setOnAction(e -> {
             activeTab = ""; // Force reload
             loadTab("portal_mcq");
@@ -411,7 +411,7 @@ public class CoursePortalTabView {
         if (obtainMarksEl != null) obtainMarks = obtainMarksEl.text().trim();
 
         VBox scorecard = new VBox(20);
-        scorecard.setStyle("-fx-background-color:white;-fx-background-radius:12;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:12;-fx-padding:24;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.03),15,0,0,3);");
+        scorecard.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:12;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:12;-fx-padding:24;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.03),15,0,0,3);");
         
         HBox scoreHeader = new HBox(12);
         scoreHeader.setAlignment(Pos.CENTER_LEFT);
@@ -420,13 +420,13 @@ public class CoursePortalTabView {
         statusBadge.setStyle("-fx-background-color:#def7ec;-fx-text-fill:#03543f;-fx-font-size:10px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
         
         Label titleLabel = new Label("MCQ Test Scorecard");
-        titleLabel.setStyle("-fx-font-size:18px;-fx-font-weight:bold;-fx-text-fill:#1e293b;");
+        titleLabel.setStyle("-fx-font-size:18px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
         
         scoreHeader.getChildren().addAll(titleLabel, statusBadge);
         scorecard.getChildren().add(scoreHeader);
 
         VBox detailBox = new VBox(0);
-        detailBox.setStyle("-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-background-radius:8;-fx-background-color:#f8fafc;");
+        detailBox.setStyle("-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-background-radius:8;-fx-background-color: -color-bg-main;");
         
         detailBox.getChildren().addAll(
             resultRow("Test Title", testTitle, true),
@@ -491,14 +491,14 @@ public class CoursePortalTabView {
 
     private HBox resultRow(String key, String val, boolean bg) {
         HBox r = new HBox();
-        r.setStyle("-fx-padding:12 16;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;" + (bg ? "-fx-background-color:white;" : "-fx-background-color:#f8fafc;"));
+        r.setStyle("-fx-padding:12 16;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;" + (bg ? "-fx-background-color: -color-bg-card;" : "-fx-background-color: -color-bg-main;"));
         
         Label kl = new Label(key);
-        kl.setStyle("-fx-font-size:12px;-fx-font-weight:bold;-fx-text-fill:#475569;");
+        kl.setStyle("-fx-font-size:12px;-fx-font-weight:bold;-fx-text-fill: -color-text-muted;");
         kl.setMinWidth(150);
 
         Label vl = new Label(val);
-        vl.setStyle("-fx-font-size:12px;-fx-text-fill:#1e293b;-fx-font-weight:500;");
+        vl.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-main;-fx-font-weight:500;");
         vl.setWrapText(true);
         HBox.setHgrow(vl, Priority.ALWAYS);
 
@@ -513,7 +513,7 @@ public class CoursePortalTabView {
 
         Button backBtn = new Button("← Back to MCQ Tests List");
         backBtn.setCursor(javafx.scene.Cursor.HAND);
-        backBtn.setStyle("-fx-background-color:white;-fx-text-fill:#004643;-fx-border-color:#004643;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
+        backBtn.setStyle("-fx-background-color: -color-bg-card;-fx-text-fill:#004643;-fx-border-color:#004643;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
         backBtn.setOnAction(e -> {
             activeTab = ""; // Force reload
             loadTab("portal_mcq");
@@ -593,7 +593,7 @@ public class CoursePortalTabView {
         }
 
         Label subHeading = new Label(headingText);
-        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;-fx-padding:0 0 4 0;");
+        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;-fx-padding:0 0 4 0;");
         content.getChildren().add(subHeading);
 
         Element table = findMainGridTable(doc, "DataContent_gvPortalSummary");
@@ -623,16 +623,16 @@ public class CoursePortalTabView {
         VBox emptyCard = new VBox(12);
         emptyCard.setAlignment(Pos.CENTER);
         emptyCard.setPadding(new Insets(32, 24, 32, 24));
-        emptyCard.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        emptyCard.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
 
         Label icon = new Label("📝");
         icon.setStyle("-fx-font-size:28px;");
 
         Label label = new Label("No Subjective Tests Found");
-        label.setStyle("-fx-text-fill:#475569;-fx-font-size:13px;-fx-font-weight:bold;");
+        label.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:13px;-fx-font-weight:bold;");
 
         Label desc = new Label("There are currently no active or completed subjective tests/assignments listed for your registered courses.");
-        desc.setStyle("-fx-text-fill:#64748b;-fx-font-size:11px;-fx-text-alignment:center;");
+        desc.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:11px;-fx-text-alignment:center;");
         desc.setWrapText(true);
 
         emptyCard.getChildren().addAll(icon, label, desc);
@@ -641,7 +641,7 @@ public class CoursePortalTabView {
 
     private VBox buildNativeSubjectiveTable(Elements rows) {
         VBox card = new VBox(0);
-        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        card.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
         
         Element headerRow = rows.first();
         if (headerRow == null) return card;
@@ -653,10 +653,10 @@ public class CoursePortalTabView {
         }
 
         HBox headerBox = new HBox(0);
-        headerBox.setStyle("-fx-background-color:#f8fafc;-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+        headerBox.setStyle("-fx-background-color: -color-bg-main;-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
         for (int i = 0; i < headers.size(); i++) {
             Label hl = new Label(headers.get(i));
-            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill: -color-text-muted;-fx-padding:0 12;");
             double w = subjectiveColW(headers.get(i), i, headers.size());
             hl.setMinWidth(w);
             hl.setMaxWidth(w);
@@ -671,7 +671,7 @@ public class CoursePortalTabView {
 
             HBox dataRow = new HBox(0);
             String bg = (r % 2 == 0) ? "#f8fafc" : "white";
-            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
 
             for (int c = 0; c < cells.size(); c++) {
                 if (c >= headers.size()) break;
@@ -701,7 +701,7 @@ public class CoursePortalTabView {
                 } else {
                     Label cl = new Label(txt);
                     cl.setWrapText(true);
-                    cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                    cl.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-main;-fx-padding:0 12;");
                     cl.setMinWidth(w);
                     cl.setMaxWidth(w);
                     cellNode = cl;
@@ -826,7 +826,7 @@ public class CoursePortalTabView {
         }
 
         Label subHeading = new Label(headingText);
-        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;-fx-padding:0 0 4 0;");
+        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;-fx-padding:0 0 4 0;");
         content.getChildren().add(subHeading);
 
         Element table = findMainGridTable(doc, "DataContent_gvPortalSummary");
@@ -856,16 +856,16 @@ public class CoursePortalTabView {
         VBox emptyCard = new VBox(12);
         emptyCard.setAlignment(Pos.CENTER);
         emptyCard.setPadding(new Insets(32, 24, 32, 24));
-        emptyCard.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        emptyCard.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
 
         Label icon = new Label("📋");
         icon.setStyle("-fx-font-size:28px;");
 
         Label label = new Label("No Assignments Found");
-        label.setStyle("-fx-text-fill:#475569;-fx-font-size:13px;-fx-font-weight:bold;");
+        label.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:13px;-fx-font-weight:bold;");
 
         Label desc = new Label("There are currently no active or closed assignments listed in your course portal.");
-        desc.setStyle("-fx-text-fill:#64748b;-fx-font-size:11px;-fx-text-alignment:center;");
+        desc.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:11px;-fx-text-alignment:center;");
         desc.setWrapText(true);
 
         emptyCard.getChildren().addAll(icon, label, desc);
@@ -874,7 +874,7 @@ public class CoursePortalTabView {
 
     private VBox buildNativeAssignmentsTable(Elements rows) {
         VBox card = new VBox(0);
-        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        card.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
         
         Element headerRow = rows.first();
         if (headerRow == null) return card;
@@ -886,10 +886,10 @@ public class CoursePortalTabView {
         }
 
         HBox headerBox = new HBox(0);
-        headerBox.setStyle("-fx-background-color:#f8fafc;-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+        headerBox.setStyle("-fx-background-color: -color-bg-main;-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
         for (int i = 0; i < headers.size(); i++) {
             Label hl = new Label(headers.get(i));
-            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill: -color-text-muted;-fx-padding:0 12;");
             double w = assignmentsColW(headers.get(i), i, headers.size());
             hl.setMinWidth(w);
             hl.setMaxWidth(w);
@@ -905,7 +905,7 @@ public class CoursePortalTabView {
             HBox dataRow = new HBox(0);
             dataRow.setAlignment(Pos.CENTER_LEFT);
             String bg = (r % 2 == 0) ? "#f8fafc" : "white";
-            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
 
             String courseTitle = "";
             String assignmentTitle = "";
@@ -1001,7 +1001,7 @@ public class CoursePortalTabView {
                             cellNode = wrapper;
                         } else {
                             Label cl = new Label(txt.isEmpty() ? "-" : txt);
-                            cl.setStyle("-fx-font-size:12px;-fx-text-fill:#64748b;-fx-padding:0 12;");
+                            cl.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-muted;-fx-padding:0 12;");
                             cl.setMinWidth(w);
                             cl.setMaxWidth(w);
                             cellNode = cl;
@@ -1011,7 +1011,7 @@ public class CoursePortalTabView {
                         if (txt.toLowerCase().contains("closed")) {
                             cl.setStyle("-fx-font-size:11px;-fx-text-fill:#b91c1c;-fx-font-weight:bold;-fx-padding:0 12;");
                         } else {
-                            cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                            cl.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-main;-fx-padding:0 12;");
                         }
                         cl.setMinWidth(w);
                         cl.setMaxWidth(w);
@@ -1020,7 +1020,7 @@ public class CoursePortalTabView {
                 } else {
                     Label cl = new Label(txt);
                     cl.setWrapText(true);
-                    cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                    cl.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-main;-fx-padding:0 12;");
                     cl.setMinWidth(w);
                     cl.setMaxWidth(w);
                     cellNode = cl;
@@ -1259,25 +1259,25 @@ public class CoursePortalTabView {
         content.setFillWidth(true);
 
         Label subHeading = new Label("Course Contents (Lecture Notes, Quiz/Assignment Solutions, Research Papers etc)");
-        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;-fx-padding:0 0 4 0;");
+        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;-fx-padding:0 0 4 0;");
         content.getChildren().add(subHeading);
 
         VBox card = new VBox(0);
-        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        card.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
 
         HBox headerBox = new HBox(0);
-        headerBox.setStyle("-fx-background-color:#f8fafc;-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+        headerBox.setStyle("-fx-background-color: -color-bg-main;-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
 
         Label hNum = new Label("#");
-        hNum.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+        hNum.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill: -color-text-muted;-fx-padding:0 12;");
         hNum.setMinWidth(60); hNum.setMaxWidth(60);
 
         Label hTitle = new Label("Course Title");
-        hTitle.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+        hTitle.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill: -color-text-muted;-fx-padding:0 12;");
         hTitle.setMinWidth(450); hTitle.setMaxWidth(450);
 
         Label hAction = new Label("Action");
-        hAction.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+        hAction.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill: -color-text-muted;-fx-padding:0 12;");
         hAction.setMinWidth(150); hAction.setMaxWidth(150);
 
         headerBox.getChildren().addAll(hNum, hTitle, hAction);
@@ -1290,11 +1290,11 @@ public class CoursePortalTabView {
 
             HBox dataRow = new HBox(0);
             String bg = (i % 2 == 1) ? "#f8fafc" : "white";
-            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
             dataRow.setAlignment(Pos.CENTER_LEFT);
 
             Label cNum = new Label(String.valueOf(i + 1));
-            cNum.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+            cNum.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-main;-fx-padding:0 12;");
             cNum.setMinWidth(60); cNum.setMaxWidth(60);
 
             Label cTitle = new Label(title);
@@ -1393,7 +1393,7 @@ public class CoursePortalTabView {
 
         Button backBtn = new Button("← Back to Subjects");
         backBtn.setCursor(javafx.scene.Cursor.HAND);
-        backBtn.setStyle("-fx-background-color:white;-fx-text-fill:#004643;-fx-border-color:#004643;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
+        backBtn.setStyle("-fx-background-color: -color-bg-card;-fx-text-fill:#004643;-fx-border-color:#004643;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
         backBtn.setOnAction(e -> {
             activeTab = ""; // Force reload
             loadTab("portal_contents");
@@ -1438,7 +1438,7 @@ public class CoursePortalTabView {
         content.getChildren().add(topBar);
 
         Label titleLabel = new Label(courseTitle + " - Course Contents");
-        titleLabel.setStyle("-fx-font-size:16px;-fx-font-weight:bold;-fx-text-fill:#334155;");
+        titleLabel.setStyle("-fx-font-size:16px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
         content.getChildren().add(titleLabel);
 
         if (table != null) {
@@ -1466,16 +1466,16 @@ public class CoursePortalTabView {
         VBox emptyCard = new VBox(12);
         emptyCard.setAlignment(Pos.CENTER);
         emptyCard.setPadding(new Insets(32, 24, 32, 24));
-        emptyCard.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        emptyCard.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
 
         Label icon = new Label("📂");
         icon.setStyle("-fx-font-size:28px;");
 
         Label label = new Label("No Course Contents Found");
-        label.setStyle("-fx-text-fill:#475569;-fx-font-size:13px;-fx-font-weight:bold;");
+        label.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:13px;-fx-font-weight:bold;");
 
         Label desc = new Label("There are currently no lecture notes, assignments, or study materials uploaded for this course.");
-        desc.setStyle("-fx-text-fill:#64748b;-fx-font-size:11px;-fx-text-alignment:center;");
+        desc.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:11px;-fx-text-alignment:center;");
         desc.setWrapText(true);
 
         emptyCard.getChildren().addAll(icon, label, desc);
@@ -1484,7 +1484,7 @@ public class CoursePortalTabView {
 
     private VBox buildNativeContentsTable(Elements rows, String courseTitle) {
         VBox card = new VBox(0);
-        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        card.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
         
         Element headerRow = rows.first();
         if (headerRow == null) return card;
@@ -1496,10 +1496,10 @@ public class CoursePortalTabView {
         }
 
         HBox headerBox = new HBox(0);
-        headerBox.setStyle("-fx-background-color:#f8fafc;-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+        headerBox.setStyle("-fx-background-color: -color-bg-main;-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
         for (int i = 0; i < headers.size(); i++) {
             Label hl = new Label(headers.get(i));
-            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill: -color-text-muted;-fx-padding:0 12;");
             double w = contentsColW(headers.get(i), i, headers.size());
             hl.setMinWidth(w);
             hl.setMaxWidth(w);
@@ -1514,7 +1514,7 @@ public class CoursePortalTabView {
 
             HBox dataRow = new HBox(0);
             String bg = (r % 2 == 0) ? "#f8fafc" : "white";
-            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
             dataRow.setAlignment(Pos.CENTER_LEFT);
 
             String titleText = "";
@@ -1553,7 +1553,7 @@ public class CoursePortalTabView {
                 } else {
                     Label cl = new Label(txt);
                     cl.setWrapText(true);
-                    cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                    cl.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-main;-fx-padding:0 12;");
                     cl.setMinWidth(w);
                     cl.setMaxWidth(w);
                     cellNode = cl;
@@ -1894,7 +1894,7 @@ public class CoursePortalTabView {
         }
 
         Label subHeading = new Label(headingText);
-        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;-fx-padding:0 0 4 0;");
+        subHeading.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;-fx-padding:0 0 4 0;");
         content.getChildren().add(subHeading);
 
         Element table = findMainGridTable(doc, "DataContent_gvPortalSummary");
@@ -1924,16 +1924,16 @@ public class CoursePortalTabView {
         VBox emptyCard = new VBox(12);
         emptyCard.setAlignment(Pos.CENTER);
         emptyCard.setPadding(new Insets(32, 24, 32, 24));
-        emptyCard.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        emptyCard.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
 
         Label icon = new Label("📌");
         icon.setStyle("-fx-font-size:28px;");
 
         Label label = new Label("No Pending Assignments");
-        label.setStyle("-fx-text-fill:#475569;-fx-font-size:13px;-fx-font-weight:bold;");
+        label.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:13px;-fx-font-weight:bold;");
 
         Label desc = new Label("There are currently no pending assignments requiring your attention. All assignments have been submitted or closed.");
-        desc.setStyle("-fx-text-fill:#64748b;-fx-font-size:11px;-fx-text-alignment:center;");
+        desc.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:11px;-fx-text-alignment:center;");
         desc.setWrapText(true);
 
         emptyCard.getChildren().addAll(icon, label, desc);
@@ -1942,7 +1942,7 @@ public class CoursePortalTabView {
 
     private VBox buildNativePendingTable(Elements rows) {
         VBox card = new VBox(0);
-        card.setStyle("-fx-background-color:white;-fx-background-radius:8;-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        card.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
         
         Element headerRow = rows.first();
         if (headerRow == null) return card;
@@ -1954,10 +1954,10 @@ public class CoursePortalTabView {
         }
 
         HBox headerBox = new HBox(0);
-        headerBox.setStyle("-fx-background-color:#f8fafc;-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+        headerBox.setStyle("-fx-background-color: -color-bg-main;-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
         for (int i = 0; i < headers.size(); i++) {
             Label hl = new Label(headers.get(i));
-            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill:#475569;-fx-padding:0 12;");
+            hl.setStyle("-fx-font-size:11px;-fx-font-weight:700;-fx-text-fill: -color-text-muted;-fx-padding:0 12;");
             double w = pendingColW(headers.get(i), i, headers.size());
             hl.setMinWidth(w);
             hl.setMaxWidth(w);
@@ -1973,7 +1973,7 @@ public class CoursePortalTabView {
             HBox dataRow = new HBox(0);
             dataRow.setAlignment(Pos.CENTER_LEFT);
             String bg = (r % 2 == 0) ? "#f8fafc" : "white";
-            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
 
             String courseTitle = "";
             String assignmentTitle = "";
@@ -2069,7 +2069,7 @@ public class CoursePortalTabView {
                             cellNode = wrapper;
                         } else {
                             Label cl = new Label(txt.isEmpty() ? "-" : txt);
-                            cl.setStyle("-fx-font-size:12px;-fx-text-fill:#64748b;-fx-padding:0 12;");
+                            cl.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-muted;-fx-padding:0 12;");
                             cl.setMinWidth(w);
                             cl.setMaxWidth(w);
                             cellNode = cl;
@@ -2079,7 +2079,7 @@ public class CoursePortalTabView {
                         if (txt.toLowerCase().contains("closed")) {
                             cl.setStyle("-fx-font-size:11px;-fx-text-fill:#b91c1c;-fx-font-weight:bold;-fx-padding:0 12;");
                         } else {
-                            cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                            cl.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-main;-fx-padding:0 12;");
                         }
                         cl.setMinWidth(w);
                         cl.setMaxWidth(w);
@@ -2088,7 +2088,7 @@ public class CoursePortalTabView {
                 } else {
                     Label cl = new Label(txt);
                     cl.setWrapText(true);
-                    cl.setStyle("-fx-font-size:12px;-fx-text-fill:#334155;-fx-padding:0 12;");
+                    cl.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-main;-fx-padding:0 12;");
                     cl.setMinWidth(w);
                     cl.setMaxWidth(w);
                     cellNode = cl;

@@ -43,12 +43,19 @@ public class ExamCouponTabView {
     private final VBox root = new VBox();
     private final AppContext context;
     private final WebView webView = new WebView();
-    private VBox noCouponView;
+    private StackPane contentPane;
 
     public ExamCouponTabView(AppContext context) {
         this.context = context;
-        buildLoading();
-        fetchCoupon();
+        buildShell();
+        loadCoupon(false);
+    }
+
+    private void buildShell() {
+        root.setFillWidth(true);
+        contentPane = new StackPane();
+        VBox.setVgrow(contentPane, Priority.ALWAYS);
+        root.getChildren().add(contentPane);
     }
 
     public VBox getRoot() { return root; }
@@ -56,6 +63,7 @@ public class ExamCouponTabView {
     // ==================== Loading ====================
 
     private void buildLoading() {
+        contentPane.getChildren().clear();
         StackPane loading = new StackPane();
         loading.setStyle("-fx-background-color: #F0EDEC;");
         VBox box = new VBox(10);
@@ -66,20 +74,31 @@ public class ExamCouponTabView {
         msg.setStyle("-fx-text-fill: #888888; -fx-font-size: 13px;");
         box.getChildren().addAll(spinner, msg);
         loading.getChildren().add(box);
-        VBox.setVgrow(loading, Priority.ALWAYS);
-        root.getChildren().add(loading);
+        contentPane.getChildren().add(loading);
     }
 
     // ==================== Fetch ====================
 
-    private void fetchCoupon() {
+    private void loadCoupon(boolean forceRefresh) {
+        buildLoading();
         new Thread(() -> {
             try {
+                boolean isOffline = false;
+
                 // Step 1: Fetch the EntryCouponSelect.aspx page
-                String selectHtml = context.portalRepository().fetchPageHtml("EntryCouponSelect.aspx");
+                String selectHtml = null;
+                if (!forceRefresh) selectHtml = context.dataCacheService().getCachedHtml("EntryCouponSelect.aspx").orElse(null);
+                if (selectHtml == null) {
+                    selectHtml = context.fetchAndCacheHtml("EntryCouponSelect.aspx");
+                    if (selectHtml == null) {
+                        selectHtml = context.dataCacheService().getCachedHtml("EntryCouponSelect.aspx").orElse(null);
+                        isOffline = true;
+                    }
+                }
+
                 if (selectHtml == null) {
                     showError("Unable to load Exam Entry Coupon",
-                            "Failed to connect to the portal. Please check your internet connection.");
+                            "Failed to connect to the portal and no offline data available.");
                     return;
                 }
 
@@ -96,18 +115,30 @@ public class ExamCouponTabView {
                 }
 
                 if (!isCouponAvailable) {
-                    // No coupon link found — coupon is NOT available
+                    boolean finalOffline1 = isOffline;
                     Platform.runLater(() -> {
-                        root.getChildren().clear();
-                        root.getChildren().add(buildNoCouponView());
+                        contentPane.getChildren().clear();
+                        VBox container = new VBox();
+                        if (finalOffline1) container.getChildren().add(buildOfflineBanner());
+                        container.getChildren().add(buildNoCouponView());
+                        contentPane.getChildren().add(container);
                     });
                     return;
                 }
 
                 // Step 3: Coupon IS available — fetch EntryCouponWithQR.aspx
-                String couponHtml = context.portalRepository().fetchPageHtml("EntryCouponWithQR.aspx");
+                String couponHtml = null;
+                if (!forceRefresh) couponHtml = context.dataCacheService().getCachedHtml("EntryCouponWithQR.aspx").orElse(null);
                 if (couponHtml == null) {
-                    showError("Unable to load Exam Coupon", "The coupon page could not be loaded.");
+                    couponHtml = context.fetchAndCacheHtml("EntryCouponWithQR.aspx");
+                    if (couponHtml == null) {
+                        couponHtml = context.dataCacheService().getCachedHtml("EntryCouponWithQR.aspx").orElse(null);
+                        isOffline = true;
+                    }
+                }
+                
+                if (couponHtml == null) {
+                    showError("Unable to load Exam Coupon", "The coupon page could not be loaded and no offline data available.");
                     return;
                 }
 
@@ -132,10 +163,14 @@ public class ExamCouponTabView {
                 }
                 
                 final String htmlWithBase = doc.outerHtml();
+                final boolean finalOffline = isOffline;
 
                 Platform.runLater(() -> {
-                    root.getChildren().clear();
-                    root.getChildren().add(buildWebViewLayout(htmlWithBase));
+                    contentPane.getChildren().clear();
+                    VBox container = new VBox();
+                    if (finalOffline) container.getChildren().add(buildOfflineBanner());
+                    container.getChildren().add(buildWebViewLayout(htmlWithBase));
+                    contentPane.getChildren().add(container);
                 });
             } catch (Exception e) {
                 e.printStackTrace();
@@ -154,13 +189,20 @@ public class ExamCouponTabView {
         HBox topBar = new HBox(12);
         topBar.setAlignment(Pos.CENTER_LEFT);
         topBar.setPadding(new Insets(12, 24, 12, 24));
-        topBar.setStyle("-fx-background-color:white;-fx-border-color:#e2e8f0;-fx-border-width:0 0 1 0;");
+        topBar.setStyle("-fx-background-color: -color-bg-card;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
 
         Label title = new Label("Exam Entry Coupon");
-        title.setStyle("-fx-font-size:16px;-fx-font-weight:800;-fx-text-fill:#1e293b;");
+        title.setStyle("-fx-font-size:16px;-fx-font-weight:800;-fx-text-fill: -color-text-main;");
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button refreshBtn = new Button("🔄");
+        refreshBtn.setStyle("-fx-background-color:transparent;-fx-font-size:18px;-fx-cursor:hand;");
+        refreshBtn.setOnAction(e -> {
+            contentPane.getChildren().clear();
+            loadCoupon(true);
+        });
 
         Button printBtn = new Button("⬇ Save as PDF");
         printBtn.setCursor(javafx.scene.Cursor.HAND);
@@ -175,7 +217,7 @@ public class ExamCouponTabView {
             });
         });
 
-        topBar.getChildren().addAll(title, spacer, printBtn);
+        topBar.getChildren().addAll(title, spacer, refreshBtn, printBtn);
 
         // Web engine setup
         WebEngine engine = webView.getEngine();
@@ -258,27 +300,41 @@ public class ExamCouponTabView {
         VBox.setVgrow(content, Priority.ALWAYS);
 
         Label title = new Label("Exam Entry Coupon");
-        title.setStyle("-fx-font-size:18px;-fx-font-weight:800;-fx-text-fill:#1e293b;");
-        content.getChildren().add(title);
+        title.setStyle("-fx-font-size:18px;-fx-font-weight:800;-fx-text-fill: -color-text-main;");
+        
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button refreshBtn = new Button("🔄");
+        refreshBtn.setStyle("-fx-background-color:transparent;-fx-font-size:18px;-fx-cursor:hand;");
+        refreshBtn.setOnAction(e -> {
+            contentPane.getChildren().clear();
+            loadCoupon(true);
+        });
+        
+        HBox header = new HBox();
+        header.setAlignment(Pos.CENTER_LEFT);
+        header.getChildren().addAll(title, spacer, refreshBtn);
+        content.getChildren().add(header);
 
         // Not available message
         VBox noCouponCard = new VBox(12);
         noCouponCard.setAlignment(Pos.CENTER);
         noCouponCard.setPadding(new Insets(32));
-        noCouponCard.setStyle("-fx-background-color:white;-fx-background-radius:8;"
-                + "-fx-border-color:#e2e8f0;-fx-border-width:1;-fx-border-radius:8;"
+        noCouponCard.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;"
+                + "-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;"
                 + "-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
 
         Label icon = new Label("📋");
         icon.setStyle("-fx-font-size:32px;");
 
         Label noCouponLabel = new Label("Exam Entry Coupon Not Available");
-        noCouponLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#475569;");
+        noCouponLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-muted;");
 
         Label noCouponDesc = new Label("The exam entry coupon is not currently available. "
                 + "This may be due to pending fee payments, missing documents, "
                 + "or the coupon not being released yet by the exam section.");
-        noCouponDesc.setStyle("-fx-font-size:12px;-fx-text-fill:#64748b;-fx-text-alignment:center;");
+        noCouponDesc.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-muted;-fx-text-alignment:center;");
         noCouponDesc.setWrapText(true);
 
         noCouponCard.getChildren().addAll(icon, noCouponLabel, noCouponDesc);
@@ -291,8 +347,8 @@ public class ExamCouponTabView {
 
     private void showError(String title, String message) {
         Platform.runLater(() -> {
-            root.getChildren().clear();
-            root.getChildren().add(buildErrorView(title, message));
+            contentPane.getChildren().clear();
+            contentPane.getChildren().add(buildErrorView(title, message));
         });
     }
 
@@ -306,10 +362,10 @@ public class ExamCouponTabView {
         icon.setStyle("-fx-font-size:28px;");
 
         Label titleLabel = new Label(title);
-        titleLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill:#334155;");
+        titleLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
 
         Label msgLabel = new Label(message);
-        msgLabel.setStyle("-fx-font-size:12px;-fx-text-fill:#64748b;-fx-text-alignment:center;");
+        msgLabel.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-muted;-fx-text-alignment:center;");
         msgLabel.setWrapText(true);
 
         box.getChildren().addAll(icon, titleLabel, msgLabel);
@@ -334,5 +390,20 @@ public class ExamCouponTabView {
             alert.setContentText(message);
             alert.showAndWait();
         });
+    }
+
+    private HBox buildOfflineBanner() {
+        HBox banner = new HBox(8);
+        banner.setAlignment(Pos.CENTER);
+        banner.setPadding(new Insets(8, 16, 8, 16));
+        banner.setStyle("-fx-background-color:#FEF2F2;-fx-border-color:#FCA5A5;-fx-border-width:0 0 1 0;");
+        
+        Label icon = new Label("⚠");
+        icon.setStyle("-fx-text-fill:#DC2626;-fx-font-size:14px;");
+        Label text = new Label("Offline Mode: Displaying previously loaded data.");
+        text.setStyle("-fx-text-fill:#991B1B;-fx-font-size:12px;-fx-font-weight:bold;");
+        
+        banner.getChildren().addAll(icon, text);
+        return banner;
     }
 }
