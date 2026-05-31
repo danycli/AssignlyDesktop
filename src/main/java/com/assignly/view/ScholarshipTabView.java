@@ -93,13 +93,14 @@ public class ScholarshipTabView {
 
     private String tabStyle(boolean active) {
         return active ? 
-            "-fx-background-color:#004643;-fx-text-fill:white;-fx-font-weight:600;-fx-padding:8 16;-fx-background-radius:6;-fx-font-size:13px;" : 
+            "-fx-background-color: -color-accent;-fx-text-fill:white;-fx-font-weight:600;-fx-padding:8 16;-fx-background-radius:6;-fx-font-size:13px;" : 
             "-fx-background-color: -color-bg-card;-fx-text-fill: -color-text-muted;-fx-font-weight:500;-fx-padding:8 16;-fx-background-radius:6;-fx-font-size:13px;-fx-border-color: -color-border;-fx-border-radius:6;";
     }
 
-    private VBox buildStatusTab(boolean forceRefresh) {
+    private javafx.scene.control.ScrollPane buildStatusTab(boolean forceRefresh) {
         VBox content = new VBox(16);
         content.setPadding(new Insets(24, 28, 24, 28));
+        content.setFillWidth(true);
 
         Label title = new Label("Scholarship Status");
         title.setStyle("-fx-font-size:24px;-fx-font-weight:800;-fx-text-fill: -color-text-main;");
@@ -113,6 +114,7 @@ public class ScholarshipTabView {
         loader.setAlignment(javafx.geometry.Pos.CENTER);
 
         VBox dataBox = new VBox(10);
+        dataBox.setFillWidth(true);
 
         // Load initially from cache or fetch
         dataBox.getChildren().setAll(loader);
@@ -120,46 +122,60 @@ public class ScholarshipTabView {
             String html = null;
             if (!forceRefresh) html = context.dataCacheService().getCachedHtml("scholarship/ViewScholarshipStatuse.aspx").orElse(null);
             if (html == null) html = context.fetchAndCacheHtml("scholarship/ViewScholarshipStatuse.aspx");
-            java.util.List<java.util.List<String>> data = context.portalRepository().parseScholarships(html);
+            java.util.List<com.assignly.service.PortalRepository.ScholarshipTable> data = context.portalRepository().parseScholarships(html);
             javafx.application.Platform.runLater(() -> populateStatusTable(dataBox, data));
         }).start();
 
         content.getChildren().addAll(header, dataBox);
-        return content;
+
+        // RESIZING FIX: Set safe minimum width boundaries on the scholarship cards list
+        content.setMinWidth(600);
+
+        // RESIZING FIX: Wrap the entire VBox panel inside a responsive ScrollPane so vertical and horizontal scrollbars appear under small window sizes
+        javafx.scene.control.ScrollPane sp = new javafx.scene.control.ScrollPane(content);
+        sp.setFitToWidth(true);
+        sp.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
+        return sp;
     }
 
-    private void populateStatusTable(VBox container, java.util.List<java.util.List<String>> data) {
+    private void populateStatusTable(VBox container, java.util.List<com.assignly.service.PortalRepository.ScholarshipTable> tables) {
         container.getChildren().clear();
-        if (data == null || data.isEmpty()) {
+        if (tables == null || tables.isEmpty()) {
             Label noData = new Label("No scholarship records found.");
             noData.setStyle("-fx-text-fill: -color-text-muted;");
             container.getChildren().add(noData);
             return;
         }
 
-        javafx.scene.control.TableView<java.util.List<String>> table = new javafx.scene.control.TableView<>();
-        table.setStyle("-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-radius:8;");
-        
-        java.util.List<String> headers = data.get(0);
-        for (int i = 0; i < headers.size(); i++) {
-            final int colIdx = i;
-            javafx.scene.control.TableColumn<java.util.List<String>, String> col = new javafx.scene.control.TableColumn<>(headers.get(i));
-            col.setCellValueFactory(cellData -> new javafx.beans.property.SimpleStringProperty(
-                cellData.getValue().size() > colIdx ? cellData.getValue().get(colIdx) : ""
-            ));
-            // Provide a decent min width to avoid squashing
-            col.setMinWidth(150);
-            table.getColumns().add(col);
+        for (com.assignly.service.PortalRepository.ScholarshipTable tableData : tables) {
+            VBox card = new VBox(12);
+            card.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:12;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:12;-fx-padding:20;-fx-max-width:Infinity;");
+            
+            Label titleLabel = new Label(tableData.title());
+            titleLabel.setStyle("-fx-text-fill: -color-accent;-fx-font-size:15px;-fx-font-weight:bold;");
+            
+            javafx.scene.control.TableView<java.util.List<String>> table = new javafx.scene.control.TableView<>();
+            table.setStyle("-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-radius:8;");
+            
+            java.util.List<String> headers = tableData.headers();
+            for (int i = 0; i < headers.size(); i++) {
+                final int colIdx = i;
+                javafx.scene.control.TableColumn<java.util.List<String>, String> col = new javafx.scene.control.TableColumn<>(headers.get(i));
+                col.setCellValueFactory(cellData -> new javafx.beans.property.SimpleStringProperty(
+                    cellData.getValue().size() > colIdx ? cellData.getValue().get(colIdx) : ""
+                ));
+                col.setMinWidth(150);
+                table.getColumns().add(col);
+            }
+            
+            table.setColumnResizePolicy(javafx.scene.control.TableView.CONSTRAINED_RESIZE_POLICY);
+            table.getItems().addAll(tableData.data());
+            table.setPrefHeight(180);
+            javafx.scene.layout.VBox.setVgrow(table, javafx.scene.layout.Priority.ALWAYS);
+            
+            card.getChildren().addAll(titleLabel, table);
+            container.getChildren().add(card);
         }
-        
-        table.setColumnResizePolicy(javafx.scene.control.TableView.CONSTRAINED_RESIZE_POLICY);
-        
-        for (int r = 1; r < data.size(); r++) {
-            table.getItems().add(data.get(r));
-        }
-        
-        javafx.scene.layout.VBox.setVgrow(table, javafx.scene.layout.Priority.ALWAYS);
-        container.getChildren().add(table);
     }
 
     private VBox buildConditionsTab(boolean forceRefresh) {
@@ -175,6 +191,7 @@ public class ScholarshipTabView {
         loader.setAlignment(javafx.geometry.Pos.CENTER);
         
         javafx.scene.web.WebView webView = new javafx.scene.web.WebView();
+        webView.setZoom(1.35 * context.preferencesService().loadPreferences().getZoomLevel());
         webView.setVisible(false); // hide until loaded
         javafx.scene.layout.VBox.setVgrow(webView, javafx.scene.layout.Priority.ALWAYS);
         
@@ -207,7 +224,7 @@ public class ScholarshipTabView {
             }
             
             String htmlContent = "<!DOCTYPE html><html><head><style>" +
-                "body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 15px; color: #334155; padding: 30px; background-color: #ffffff; }" +
+                "body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 17px; color: #334155; padding: 30px; background-color: #ffffff; }" +
                 "h2 { color: #0f172a; margin-top: 0; }" +
                 "ul { padding-left: 20px; }" +
                 "</style></head><body>" +
@@ -218,6 +235,11 @@ public class ScholarshipTabView {
             javafx.application.Platform.runLater(() -> {
                 content.getChildren().remove(loader);
                 webView.setVisible(true);
+                webView.getEngine().getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
+                    if (newState == javafx.concurrent.Worker.State.SUCCEEDED) {
+                        context.portalService().applyDarkOverlay(webView.getEngine(), context.preferencesService().loadPreferences().isDarkOverlay());
+                    }
+                });
                 webView.getEngine().loadContent(htmlContent);
             });
         }).start();

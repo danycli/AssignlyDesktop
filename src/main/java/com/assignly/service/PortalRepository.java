@@ -1,5 +1,6 @@
 package com.assignly.service;
 
+import com.assignly.util.ErrorReporter;
 import okhttp3.*;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -80,6 +81,12 @@ public class PortalRepository {
             double cgpa
     ) {}
 
+    public record ScholarshipTable(
+            String title,
+            List<String> headers,
+            List<List<String>> data
+    ) {}
+
     // ---------- Added for Settings Sub-Tabs ----------
     public record ProfileInfo(String cellNetwork, String cellNumber, String email) {}
     public record LoginHistoryEntry(String no, String time, String date, String ip) {}
@@ -94,11 +101,38 @@ public class PortalRepository {
     private static final DateTimeFormatter PORTAL_DEADLINE_FMT =
             DateTimeFormatter.ofPattern("MMM dd ,yyyy HH:mm", Locale.US);
     private static final ZoneId PORTAL_ZONE = ZoneId.systemDefault();
+    private static final Pattern COURSE_CODE_PATTERN = Pattern.compile("([A-Z]{2,4}\\s*-?\\d{2,4})");
+    private static final Pattern ATTENDANCE_PATTERN =
+            Pattern.compile("([A-Z]{2,4}\\s*-?\\d{2,4})[^0-9]{0,10}(\\d{1,3}(?:\\.\\d+)?)\\s*%", Pattern.CASE_INSENSITIVE);
+    private static final Pattern GPA_PAIR_PATTERN =
+            Pattern.compile("SGPA\\s*(?::|=)?\\s*([0-9]+(?:\\.[0-9]+)?)\\s*CGPA\\s*(?::|=)?\\s*([0-9]+(?:\\.[0-9]+)?)",
+                    Pattern.CASE_INSENSITIVE);
+    private static final Map<String, String> INFO_KEY_ALIASES = Map.ofEntries(
+            Map.entry("name", "Name"),
+            Map.entry("student name", "Name"),
+            Map.entry("father name", "Father Name"),
+            Map.entry("roll no", "Roll No"),
+            Map.entry("roll number", "Roll No"),
+            Map.entry("registration no", "Registration No"),
+            Map.entry("registration number", "Registration No"),
+            Map.entry("reg no", "Registration No"),
+            Map.entry("program", "Program"),
+            Map.entry("degree", "Program"),
+            Map.entry("semester", "Semester"),
+            Map.entry("batch", "Batch"),
+            Map.entry("section", "Section")
+    );
 
     // ---------- Session state ----------
     private final Map<String, Map<String, Cookie>> cookieStore = new ConcurrentHashMap<>();
+    private final Map<String, java.util.concurrent.CompletableFuture<String>> inFlightRequests = new ConcurrentHashMap<>();
     private volatile String currentStudentName;
     private volatile String currentStudentPhotoUrl;
+    private Runnable onSessionExpiredCallback;
+
+    public void setOnSessionExpiredCallback(Runnable callback) {
+        this.onSessionExpiredCallback = callback;
+    }
 
     private final OkHttpClient client = new OkHttpClient.Builder()
             .cookieJar(new CookieJar() {
@@ -116,6 +150,29 @@ public class PortalRepository {
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
+            .addInterceptor(chain -> {
+                okhttp3.Request request = chain.request();
+                okhttp3.Response response = chain.proceed(request);
+                
+                String url = request.url().toString().toLowerCase();
+                if (url.contains("login.aspx")) {
+                    return response;
+                }
+                
+                if (response.isSuccessful() && response.body() != null) {
+                    okhttp3.MediaType mediaType = response.body().contentType();
+                    if (mediaType != null && mediaType.subtype().equalsIgnoreCase("html")) {
+                        String bodyString = response.peekBody(1024 * 1024).string();
+                        if (bodyString.contains("txtUsername") || bodyString.contains("btnLogin")) {
+                            if (onSessionExpiredCallback != null) {
+                                onSessionExpiredCallback.run();
+                            }
+                            throw new SessionExpiredException("Session expired. Portal redirected to Login.");
+                        }
+                    }
+                }
+                return response;
+            })
             .build();
 
     // ---------- Public accessors ----------
@@ -123,6 +180,21 @@ public class PortalRepository {
     public String getPortalLoginUrl()  { return LOGIN_URL; }
     public String getCurrentStudentName() { return currentStudentName; }
     public String getCurrentStudentPhotoUrl() { return currentStudentPhotoUrl; }
+
+    public boolean checkConnectivity() {
+        try {
+            // Using a lightweight HEAD request to check if the portal is reachable
+            okhttp3.Request request = new okhttp3.Request.Builder()
+                .url(BASE_URL)
+                .head()
+                .build();
+            try (okhttp3.Response response = client.newCall(request).execute()) {
+                return response.isSuccessful() || response.code() == 302; // Redirects to login are fine
+            }
+        } catch (java.io.IOException e) {
+            return false;
+        }
+    }
 
     // ---------- Login (mirroring Kotlin login()) ----------
     public LoginResult login(String username, String password) {
@@ -424,16 +496,42 @@ public class PortalRepository {
 
             for (Element row : rows) {
                 String rowText = row.text().toUpperCase();
-                // Simple regex to find SGPA and CGPA numbers in the row
-                if (rowText.contains("SGPA") || rowText.contains("CGPA")) {
+                // Strategy 1: Fallback checks for explicit ID patterns in rows or table siblings
+                if (sgpa == -1) {
+                    Element sSpan = table.parent().selectFirst("[id*=lblSGPA], [id*=sgpa]");
+                    if (sSpan != null) {
+                        try { sgpa = Double.parseDouble(sSpan.text().trim()); } catch (Exception ex) {
+                            ErrorReporter.logError("PortalRepository#parseGpaHistory fallback sgpa", ex);
+                        }
+                    }
+                }
+                if (cgpa == -1) {
+                    Element cSpan = table.parent().selectFirst("[id*=lblCGPA], [id*=cgpa]");
+                    if (cSpan != null) {
+                        try { cgpa = Double.parseDouble(cSpan.text().trim()); } catch (Exception ex) {
+                            ErrorReporter.logError("PortalRepository#parseGpaHistory fallback cgpa", ex);
+                        }
+                    }
+                }
+
+                // Strategy 2: Simple regex to find SGPA and CGPA numbers in the row
+                if ((sgpa == -1 || cgpa == -1) && (rowText.contains("SGPA") || rowText.contains("CGPA"))) {
                     Matcher mSgpa = Pattern.compile("SGPA\\s*(?::|\\-|=)?\\s*([0-9]+\\.[0-9]+)").matcher(rowText);
                     if (mSgpa.find()) {
-                        try { sgpa = Double.parseDouble(mSgpa.group(1)); } catch (Exception ignored) {}
+                        try {
+                            sgpa = Double.parseDouble(mSgpa.group(1));
+                        } catch (NumberFormatException ex) {
+                            ErrorReporter.logError("PortalRepository#parseGpaHistory sgpa", ex);
+                        }
                     }
                     
                     Matcher mCgpa = Pattern.compile("CGPA\\s*(?::|\\-|=)?\\s*([0-9]+\\.[0-9]+)").matcher(rowText);
                     if (mCgpa.find()) {
-                        try { cgpa = Double.parseDouble(mCgpa.group(1)); } catch (Exception ignored) {}
+                        try {
+                            cgpa = Double.parseDouble(mCgpa.group(1));
+                        } catch (NumberFormatException ex) {
+                            ErrorReporter.logError("PortalRepository#parseGpaHistory cgpa", ex);
+                        }
                     }
                 }
             }
@@ -704,6 +802,40 @@ public class PortalRepository {
 
     // ---------- Fetch page HTML (for tabbed portal views) ----------
     public String fetchPageHtml(String relativeUrl) {
+        boolean[] isCreator = {false};
+        java.util.concurrent.CompletableFuture<String> future = inFlightRequests.computeIfAbsent(relativeUrl, k -> {
+            isCreator[0] = true;
+            return new java.util.concurrent.CompletableFuture<>();
+        });
+
+        if (isCreator[0]) {
+            try {
+                String result = fetchPageHtmlInternal(relativeUrl);
+                future.complete(result);
+                return result;
+            } catch (Throwable t) {
+                future.completeExceptionally(t);
+                if (t instanceof RuntimeException) {
+                    throw (RuntimeException) t;
+                }
+                return null;
+            } finally {
+                inFlightRequests.remove(relativeUrl);
+            }
+        } else {
+            try {
+                return future.join();
+            } catch (java.util.concurrent.CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException) {
+                    throw (RuntimeException) cause;
+                }
+                return null;
+            }
+        }
+    }
+
+    private String fetchPageHtmlInternal(String relativeUrl) {
         try {
             String url = BASE_URL + "/" + relativeUrl;
             Request request = new Request.Builder()
@@ -781,31 +913,176 @@ public class PortalRepository {
         return history;
     }
 
-    public List<List<String>> parseScholarships(String html) {
-        List<List<String>> data = new ArrayList<>();
-        if (html == null || html.isBlank()) return data;
+    private String findTableTitle(Element table, String fallback) {
+        // Look at preceding siblings
+        Element prev = table.previousElementSibling();
+        int maxDistance = 4; // look up to 4 elements before
+        for (int i = 0; i < maxDistance && prev != null; i++) {
+            String tagName = prev.tagName().toLowerCase();
+            if (tagName.matches("h[1-6]") || tagName.equals("span") || tagName.equals("label") || tagName.equals("p") || tagName.equals("div")) {
+                String text = prev.text().trim();
+                if (text.length() > 3 && text.length() < 100 && !text.toLowerCase().contains("welcome") && !text.toLowerCase().contains("log out")) {
+                    return text;
+                }
+            }
+            prev = prev.previousElementSibling();
+        }
+        
+        // Search if parent container has header
+        Element parent = table.parent();
+        if (parent != null) {
+            Element headerSpan = parent.selectFirst("span[id*=lblTitle], span[id*=Title], label[id*=lblTitle]");
+            if (headerSpan != null && !headerSpan.text().trim().isBlank()) {
+                return headerSpan.text().trim();
+            }
+            
+            Element heading = parent.selectFirst("h1, h2, h3, h4, h5, h6");
+            if (heading != null && !heading.text().trim().isBlank()) {
+                return heading.text().trim();
+            }
+        }
+        
+        // Last resort: check page title
+        if (table.ownerDocument() != null) {
+            Element docTitle = table.ownerDocument().selectFirst("title");
+            if (docTitle != null && !docTitle.text().trim().isBlank()) {
+                return docTitle.text().trim();
+            }
+        }
+        
+        return fallback;
+    }
+
+    public List<ScholarshipTable> parseScholarships(String html) {
+        List<ScholarshipTable> tables = new ArrayList<>();
+        if (html == null || html.isBlank()) return tables;
         Document doc = Jsoup.parse(html);
-        Element targetTable = null;
-        for (Element t : doc.select("table")) {
-            if (t.text().toLowerCase().contains("scholarship") || t.attr("id").toLowerCase().contains("gridview")) {
-                targetTable = t;
-                break;
+        
+        // Find all tables
+        Elements allTables = doc.select("table");
+        int tableIndex = 1;
+        
+        for (Element t : allTables) {
+            // Skip outer/wrapper tables that contain nested tables to avoid duplicate parses
+            if (t.select("table").size() > 1) {
+                continue;
+            }
+
+            String text = t.text().toLowerCase();
+            // Match tables containing "scholarship", "gridview", or having specific headers like "amount" & "status"
+            boolean matches = text.contains("scholarship") 
+                || t.attr("id").toLowerCase().contains("grid")
+                || t.attr("id").toLowerCase().contains("gv")
+                || (text.contains("amount") && text.contains("status"))
+                || (text.contains("title") && text.contains("status"))
+                || (text.contains("name") && text.contains("status"))
+                || t.attr("class").toLowerCase().contains("data-grid")
+                || t.attr("class").toLowerCase().contains("gridview");
+                
+            if (matches) {
+                // Parse rows in this table
+                List<String> headers = new ArrayList<>();
+                List<List<String>> data = new ArrayList<>();
+                
+                Elements rows = t.select("tr");
+                for (Element row : rows) {
+                    // Check if it has th elements
+                    Elements ths = row.select("th");
+                    if (!ths.isEmpty() && headers.isEmpty()) {
+                        // Skip single-cell title/banner <th> rows (colspan headers)
+                        if (ths.size() == 1 && rows.size() > 2) {
+                            continue; // likely a colspan title like "Scholarship Awarded Information"
+                        }
+                        for (Element th : ths) {
+                            headers.add(th.text().trim());
+                        }
+                    } else {
+                        Elements tds = row.select("td");
+                        if (!tds.isEmpty()) {
+                            // Skip single-cell rows (colspan title/banner rows)
+                            if (tds.size() == 1 && rows.size() > 2) {
+                                continue;
+                            }
+                            // If we haven't set headers yet, use this row as headers
+                            if (headers.isEmpty()) {
+                                for (Element td : tds) {
+                                    headers.add(td.text().trim());
+                                }
+                            } else {
+                                List<String> rowData = new ArrayList<>();
+                                for (Element td : tds) {
+                                    rowData.add(td.text().trim());
+                                }
+                                // Skip rows that are empty or have fewer cells
+                                if (rowData.size() > 1 && rowData.stream().anyMatch(s -> !s.isBlank())) {
+                                    data.add(rowData);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Safety check: if headers count doesn't match data columns, re-derive
+                if (!data.isEmpty() && !headers.isEmpty() && data.get(0).size() != headers.size()) {
+                    // Headers were likely a single-cell title row; shift data[0] to headers
+                    headers = data.remove(0);
+                }
+                
+                // If we extracted a valid table, add it
+                if (!headers.isEmpty() && !data.isEmpty()) {
+                    String headersStr = headers.toString().toLowerCase();
+                    if (headersStr.contains("father name") || headersStr.contains("registration no") || headersStr.contains("roll no") || headersStr.contains("cnic")) {
+                        continue; // Skip personal info table
+                    }
+                    String title = findTableTitle(t, "Scholarship Status Table " + tableIndex++);
+                    tables.add(new ScholarshipTable(title, headers, data));
+                }
             }
         }
-        if (targetTable == null) targetTable = doc.select("table").first();
-        if (targetTable != null) {
-            for (Element row : targetTable.select("tr")) {
-                List<String> rowData = new ArrayList<>();
-                for (Element cell : row.select("th, td")) {
-                    rowData.add(cell.text().trim());
+        
+        // Fallback: If no tables matched the specific filters, check if any table exists
+        if (tables.isEmpty() && !allTables.isEmpty()) {
+            for (Element firstTable : allTables) {
+                // Skip outer/wrapper tables that contain nested tables
+                if (firstTable.select("table").size() > 1) {
+                    continue;
                 }
-                // Skip rows like "Scholarship Awarded Information" that span the whole table
-                if (rowData.size() > 2 && rowData.stream().anyMatch(s -> !s.isBlank())) {
-                    data.add(rowData);
+                List<String> headers = new ArrayList<>();
+                List<List<String>> data = new ArrayList<>();
+                Elements rows = firstTable.select("tr");
+                for (Element row : rows) {
+                    Elements cells = row.select("th, td");
+                    // Skip single-cell colspan title rows
+                    if (cells.size() == 1 && rows.size() > 2) {
+                        continue;
+                    }
+                    List<String> rowData = new ArrayList<>();
+                    for (Element cell : cells) {
+                        rowData.add(cell.text().trim());
+                    }
+                    if (headers.isEmpty()) {
+                        headers.addAll(rowData);
+                    } else if (rowData.size() > 1 && rowData.stream().anyMatch(s -> !s.isBlank())) {
+                        data.add(rowData);
+                    }
+                }
+                // Safety check: if headers count doesn't match data columns, re-derive
+                if (!data.isEmpty() && !headers.isEmpty() && data.get(0).size() != headers.size()) {
+                    headers = data.remove(0);
+                }
+                if (!headers.isEmpty() && !data.isEmpty()) {
+                    String headersStr = headers.toString().toLowerCase();
+                    if (headersStr.contains("father name") || headersStr.contains("registration no") || headersStr.contains("roll no") || headersStr.contains("cnic")) {
+                        continue; // Skip personal info table
+                    }
+                    String title = findTableTitle(firstTable, "Scholarship Information");
+                    tables.add(new ScholarshipTable(title, headers, data));
+                    break; // Only pick the first non-personal-info leaf table
                 }
             }
         }
-        return data;
+        
+        return tables;
     }
 
     public String downloadAndExtractPdf(String relativeUrl) {
@@ -1022,7 +1299,7 @@ public class PortalRepository {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
-    private void clearSessionState() {
+    public void clearSessionState() {
         cookieStore.clear();
         currentStudentName = null;
         currentStudentPhotoUrl = null;
@@ -1288,14 +1565,42 @@ public class PortalRepository {
         return normalizeUrl(extractUrlFromJavascript(downloadCell.attr("onclick")));
     }
 
+    private PostBackInfo extractPostBackFromSubmitLikeControl(Element element) {
+        if (element == null) return null;
+        String tag = element.tagName().toLowerCase();
+        String type = element.attr("type").toLowerCase();
+        boolean isSubmitLike = tag.equals("button") || tag.equals("a") || tag.equals("span") || 
+            (tag.equals("input") && (type.equals("submit") || type.equals("button") || type.equals("image") || type.isEmpty()));
+        if (!isSubmitLike) return null;
+
+        String controlName = element.attr("name").trim();
+        if (controlName.isEmpty()) {
+            controlName = element.attr("id").trim().replace("_", "$");
+        }
+        if (controlName.isEmpty()) return null;
+
+        String fingerprint = (controlName + " " + element.attr("id") + " " + element.attr("value") + " " + element.text() + " " + element.className()).toLowerCase();
+
+        boolean looksLikeSubmitAction = fingerprint.contains("submit") ||
+            fingerprint.contains("upload") ||
+            fingerprint.contains("change") ||
+            fingerprint.contains("addfile") ||
+            fingerprint.contains("updatefile") ||
+            fingerprint.contains("assignment") ||
+            fingerprint.contains("attach");
+
+        return looksLikeSubmitAction ? new PostBackInfo(controlName, "") : null;
+    }
+
     public String extractAssignmentSubmitLink(Element actionCell, String pageUrl) {
         if (actionCell == null) return "";
-        Elements anchors = actionCell.select("a");
-        for (Element a : anchors) {
-            String href = a.attr("href");
-            String onClick = a.attr("onclick");
+        Elements actionElements = actionCell.select("a, button, input, span");
+        for (Element element : actionElements) {
+            String href = element.attr("href");
+            String onClick = element.attr("onclick");
             PostBackInfo postBackInfo = extractPostBackInfo(href);
             if (postBackInfo == null) postBackInfo = extractPostBackInfo(onClick);
+            if (postBackInfo == null) postBackInfo = extractPostBackFromSubmitLikeControl(element);
             if (postBackInfo != null) {
                 return toPostBackDownloadLink(postBackInfo, pageUrl);
             }
@@ -1310,6 +1615,7 @@ public class PortalRepository {
             }
         }
         PostBackInfo cellPostBackInfo = extractPostBackInfo(actionCell.attr("onclick"));
+        if (cellPostBackInfo == null) cellPostBackInfo = extractPostBackFromSubmitLikeControl(actionCell);
         if (cellPostBackInfo != null) {
             return toPostBackDownloadLink(cellPostBackInfo, pageUrl);
         }
@@ -1368,7 +1674,7 @@ public class PortalRepository {
                 }
             }
             if (lastSegment == null) return null;
-            String decoded = URLDecoder.decode(lastSegment, StandardCharsets.UTF_8.toString());
+            String decoded = URLDecoder.decode(lastSegment, StandardCharsets.UTF_8);
             int dotIdx = decoded.lastIndexOf('.');
             if (dotIdx != -1 && dotIdx < decoded.length() - 1) {
                 String namePart = decoded.substring(0, dotIdx);
@@ -1377,7 +1683,9 @@ public class PortalRepository {
                     return decoded;
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (IllegalArgumentException ex) {
+            ErrorReporter.logError("PortalRepository#extractNameFromUrl", ex);
+        }
         return null;
     }
 
@@ -1394,8 +1702,10 @@ public class PortalRepository {
                     String raw = m.group(1).trim();
                     String decoded = raw;
                     try {
-                        decoded = URLDecoder.decode(raw, StandardCharsets.UTF_8.toString());
-                    } catch (Exception ignored) {}
+                        decoded = URLDecoder.decode(raw, StandardCharsets.UTF_8);
+                    } catch (IllegalArgumentException ex) {
+                        ErrorReporter.logError("PortalRepository#extractFileName decode", ex);
+                    }
                     String cleanName = sanitizeFileName(decoded);
                     if (!cleanName.isBlank()) return cleanName;
                 }
@@ -1423,7 +1733,9 @@ public class PortalRepository {
                     }
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (IllegalArgumentException ex) {
+            ErrorReporter.logError("PortalRepository#extractFileName query params", ex);
+        }
 
         String ext = getExtensionFromMimeType(mimeType);
         return "assignment_file." + ext;
@@ -1617,7 +1929,9 @@ public class PortalRepository {
                     return parsed.scheme() + "://" + parsed.host() + ":" + parsed.port();
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (IllegalArgumentException ex) {
+            ErrorReporter.logError("PortalRepository#resolveOrigin", ex);
+        }
         return BASE_URL;
     }
 
@@ -2000,15 +2314,29 @@ public class PortalRepository {
         String trimmed = href.trim();
         if (trimmed.isEmpty() || trimmed.equals("#") || trimmed.toLowerCase().startsWith("javascript")) return "";
         if (trimmed.toLowerCase().startsWith("http")) return trimmed;
+
+        String absBase = resolveBaseUrl;
+        if (absBase == null || absBase.isBlank()) {
+            absBase = BASE_URL + "/CoursePortal.aspx";
+        } else if (!absBase.toLowerCase().startsWith("http")) {
+            if (absBase.startsWith("/")) {
+                absBase = BASE_URL + absBase;
+            } else {
+                absBase = BASE_URL + "/" + absBase;
+            }
+        }
+
         try {
-            HttpUrl base = HttpUrl.parse(resolveBaseUrl);
+            HttpUrl base = HttpUrl.parse(absBase);
             if (base != null) {
                 HttpUrl resolved = base.resolve(trimmed);
                 if (resolved != null) {
                     return resolved.toString();
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (IllegalArgumentException ex) {
+            ErrorReporter.logError("PortalRepository#normalizeUrl", ex);
+        }
         return "";
     }
 
@@ -2333,6 +2661,7 @@ public class PortalRepository {
                 logD("PortalAuth", "  File input name: '" + name + "'");
                 if (!name.isEmpty()) {
                     fileInputName = name;
+                    break; // Pick the FIRST file input as the primary submission slot!
                 }
             }
 
@@ -2617,8 +2946,9 @@ public class PortalRepository {
                 (normalizedHtml.contains("file") && normalizedHtml.contains("too large"));
 
             return hasPortalSizeMessage;
-        } catch (Exception ignored) {}
+        } catch (IllegalArgumentException ex) {
+            ErrorReporter.logError("PortalRepository#isUploadSizeErrorRedirect", ex);
+        }
         return false;
     }
 }
-

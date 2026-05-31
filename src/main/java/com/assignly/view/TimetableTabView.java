@@ -82,13 +82,13 @@ public class TimetableTabView {
     private void buildLoading() {
         contentPane.getChildren().clear();
         StackPane loading = new StackPane();
-        loading.setStyle("-fx-background-color: #F0EDEC;");
+        loading.setStyle("-fx-background-color: -color-bg-main;");
         VBox box = new VBox(10);
         box.setAlignment(Pos.CENTER);
         ProgressIndicator spinner = new ProgressIndicator();
         spinner.setMaxSize(28, 28);
         Label msg = new Label("Loading timetable...");
-        msg.setStyle("-fx-text-fill: #888888; -fx-font-size: 13px;");
+        msg.setStyle("-fx-text-fill: -color-text-muted; -fx-font-size: 13px;");
         box.getChildren().addAll(spinner, msg);
         loading.getChildren().add(box);
         contentPane.getChildren().add(loading);
@@ -220,7 +220,7 @@ public class TimetableTabView {
 
         // Header row
         HBox headerBox = new HBox(0);
-        headerBox.setStyle("-fx-background-color:#f1f5f9;-fx-padding:10 0;"
+        headerBox.setStyle("-fx-background-color: -color-bg-card;-fx-padding:10 0;"
                 + "-fx-border-color: -color-border;-fx-border-width:0 0 2 0;");
         for (int i = 0; i < timeSlots.size(); i++) {
             Label hl = new Label(timeSlots.get(i));
@@ -243,9 +243,9 @@ public class TimetableTabView {
             if (cells.isEmpty()) continue;
 
             HBox dataRow = new HBox(0);
-            String bg = (r % 2 == 0) ? "#f8fafc" : "white";
+            String bg = (r % 2 == 0) ? "-color-bg-card" : "-color-bg-main";
             dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:4 0;"
-                    + "-fx-border-color:#f1f5f9;-fx-border-width:0 0 1 0;");
+                    + "-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
             dataRow.setAlignment(Pos.CENTER_LEFT);
             dataRow.setMinHeight(70);
 
@@ -281,7 +281,7 @@ public class TimetableTabView {
                     // Empty slot
                     Label empty = new Label("—");
                     empty.setAlignment(Pos.CENTER);
-                    empty.setStyle("-fx-text-fill:#cbd5e1;-fx-font-size:12px;-fx-padding:8;");
+                    empty.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:12px;-fx-padding:8;");
                     empty.setMinWidth(cellWidth);
                     empty.setPrefWidth(cellWidth);
                     empty.setMaxWidth(cellWidth);

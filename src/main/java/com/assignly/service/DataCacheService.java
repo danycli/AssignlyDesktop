@@ -77,6 +77,38 @@ public class DataCacheService {
         }
     }
 
+    public record NotificationEntry(long id, String title, String message, String createdAt, boolean isRead) {}
+
+    public List<NotificationEntry> getDetailedNotifications() {
+        List<NotificationEntry> notifications = new ArrayList<>();
+        try (Connection connection = databaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                 "SELECT id, title, message, created_at, is_read FROM notifications ORDER BY id DESC LIMIT 50");
+             ResultSet rs = statement.executeQuery()) {
+            while (rs.next()) {
+                notifications.add(new NotificationEntry(
+                    rs.getLong("id"),
+                    rs.getString("title"),
+                    rs.getString("message"),
+                    rs.getString("created_at"),
+                    rs.getInt("is_read") == 1
+                ));
+            }
+            return notifications;
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Unable to read detailed notifications cache.", ex);
+        }
+    }
+
+    public void clearNotifications() {
+        try (Connection connection = databaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement("DELETE FROM notifications")) {
+            statement.executeUpdate();
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Unable to clear notifications cache.", ex);
+        }
+    }
+
     public Optional<String> getAcademicValue(String category) {
         try (Connection connection = databaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(
@@ -110,6 +142,25 @@ public class DataCacheService {
 
     public Optional<String> getCachedHtml(String url) {
         return getAcademicValue("html_" + url);
+    }
+
+    public Optional<java.time.LocalDateTime> getCacheTimestamp(String url) {
+        String query = "SELECT captured_at FROM academic_cache WHERE category = ?";
+        try (java.sql.Connection connection = databaseManager.getConnection();
+             java.sql.PreparedStatement pstmt = connection.prepareStatement(query)) {
+            pstmt.setString(1, "html_" + url);
+            try (java.sql.ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) {
+                    String capturedAt = rs.getString("captured_at");
+                    if (capturedAt != null) {
+                        return Optional.of(java.time.LocalDateTime.parse(capturedAt));
+                    }
+                }
+            }
+        } catch (java.sql.SQLException e) {
+            System.err.println("Failed to read cache timestamp for " + url + ": " + e.getMessage());
+        }
+        return Optional.empty();
     }
 
     public void saveSnapshot(PortalSnapshot snapshot) {
@@ -261,6 +312,13 @@ public class DataCacheService {
         } catch (SQLException ex) {
             throw new IllegalStateException("Unable to clear local cache.", ex);
         }
+
+        try {
+            java.io.File logo = new java.io.File("cui_logo.png");
+            if (logo.exists()) {
+                logo.delete();
+            }
+        } catch (Exception ignored) {}
     }
 
     private String normalize(String value, String fallback) {

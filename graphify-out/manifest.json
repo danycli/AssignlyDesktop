@@ -1,0 +1,186 @@
+{
+  "C:\\VS Code\\AssignlyDesktop\\PortalRepository.kt": {
+    "mtime": 1779385075.9918237,
+    "hash": "732fdb89d1b4bbbae73e6da1f705ccad"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\Launcher.java": {
+    "mtime": 1779372910.4742,
+    "hash": "47b5384557363db4e01ab1c57c4fc387"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\Main.java": {
+    "mtime": 1779710266.032028,
+    "hash": "85f4cf022516d3fafe561b5c4d76d280"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\database\\DatabaseManager.java": {
+    "mtime": 1778968075.6536849,
+    "hash": "15a5fa69ab83e7abd4155b64ba32dcfa"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\model\\Announcement.java": {
+    "mtime": 1778968075.6463418,
+    "hash": "d8f62e424703d627d2cc7b54c211f27b"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\model\\Assignment.java": {
+    "mtime": 1778968075.6442637,
+    "hash": "fbfe5dffdf4a777962e19117dddd617d"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\model\\PortalSnapshot.java": {
+    "mtime": 1778968075.6510198,
+    "hash": "775634279643eb6453a168e92b3c1d82"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\model\\User.java": {
+    "mtime": 1778968013.2082212,
+    "hash": "ae2844ccac5992117ccc71f97bf917b2"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\model\\UserPreferences.java": {
+    "mtime": 1779444009.0219164,
+    "hash": "5dbef5a7321a98926ef8c04c9160fa86"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\security\\EncryptionUtil.java": {
+    "mtime": 1778968075.658649,
+    "hash": "3d3725d6f7c0aa21d0c162b06a62bcab"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\service\\CredentialManager.java": {
+    "mtime": 1778968075.7151308,
+    "hash": "8db15c23db99cf1a6a0aa1810cf13d30"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\service\\DataCacheService.java": {
+    "mtime": 1779713277.6015508,
+    "hash": "aa0d59f74437b62d5fe643961da8ec36"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\service\\PdfExportService.java": {
+    "mtime": 1779716333.0322716,
+    "hash": "30f317c028514e137948e383493d0215"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\service\\PortalRepository.java": {
+    "mtime": 1779713372.8958702,
+    "hash": "34a9c87c34dce43eb3f19e78a83a1ecb"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\service\\PortalService.java": {
+    "mtime": 1778968075.734162,
+    "hash": "4b0516aad3060b4b9efcc4492d2051f9"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\service\\PreferencesService.java": {
+    "mtime": 1779444009.0483725,
+    "hash": "8ff31e8b470ed76c42a6803d0f1b1ab3"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\util\\AppContext.java": {
+    "mtime": 1779717341.5376532,
+    "hash": "e1bd7488d8175f6e561e77b9c528bd11"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\util\\UiUtil.java": {
+    "mtime": 1778968075.7381525,
+    "hash": "4a73ef7cbbb7d67038e23e4424289d06"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\CoursePortalTabView.java": {
+    "mtime": 1779710590.4635339,
+    "hash": "e6bd18261fa7fb63bfe1b558ec2667c0"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\CoursesTabView.java": {
+    "mtime": 1779714310.2654402,
+    "hash": "88e44805368db18f056f1c2207ce3f9f"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\DashboardTabView.java": {
+    "mtime": 1779711720.6479714,
+    "hash": "7431f737d78b105528fdc3f4142679cf"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\DateSheetTabView.java": {
+    "mtime": 1779710590.4750385,
+    "hash": "d2b6c5f4b8d7a7a7f4b54969cc36398b"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\ExamCouponTabView.java": {
+    "mtime": 1779710590.4839795,
+    "hash": "39a6db87c58be767ee20b333a5b85290"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\FeeTabView.java": {
+    "mtime": 1779716423.8441427,
+    "hash": "8eb083f1995ce302fe56957462a34f97"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\LoginView.java": {
+    "mtime": 1779710590.4920194,
+    "hash": "7d410db905bbf0b405d20a2a747d1bb4"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\MobileAppActivationTabView.java": {
+    "mtime": 1779710590.4955459,
+    "hash": "66f8b391c93e145c70cd1c3cc8bae50f"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\ResultTabView.java": {
+    "mtime": 1779714613.7724268,
+    "hash": "6b5c167218d45e88b8f23ad017b4a76a"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\ScholarshipTabView.java": {
+    "mtime": 1779710590.525921,
+    "hash": "0c446fa10dc280ba43c8ca31eb054110"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\SettingsTabView.java": {
+    "mtime": 1779715371.4551907,
+    "hash": "c9e97009c5553b3a8a06d825ad6e5af8"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\TimetableTabView.java": {
+    "mtime": 1779710590.5439146,
+    "hash": "27eee7b80facdb39150bac4929a16a4c"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\main\\java\\com\\assignly\\view\\WebPortalTabView.java": {
+    "mtime": 1779710590.547064,
+    "hash": "6f70b57868f72511ea90941b318f6b6e"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\test\\java\\com\\assignly\\scratch\\ExtractHtml.java": {
+    "mtime": 1779700847.364811,
+    "hash": "abccb36aa58ab395832bdf01b28ebaab"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\src\\test\\java\\com\\assignly\\scratch\\TestPdf.java": {
+    "mtime": 1779703415.1786873,
+    "hash": "f57f09a6ee78c159bd5f328cb449df90"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\course_contents_postback.html": {
+    "mtime": 1779705376.7610393,
+    "hash": "0adf83a85cccf444faa2fe1323e1874b"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\course_contents_raw.html": {
+    "mtime": 1779711155.4859912,
+    "hash": "311953168c5e7e31db854a68077d0e07"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\cts_assignments_raw.html": {
+    "mtime": 1779711164.7479007,
+    "hash": "48a8857368f17246a9c2a14ba850a962"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\cts_dashboard_raw.html": {
+    "mtime": 1779717637.2723563,
+    "hash": "0a52fdd2e1a94a87b972690965c5d005"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\cts_paper_raw.html": {
+    "mtime": 1779434872.4081836,
+    "hash": "65f56344984baf085e592962dac1e28c"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\cts_result_raw.html": {
+    "mtime": 1778983594.172057,
+    "hash": "a9df7696ffd0f69b54d422afe2d434f1"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\cts_subjective_raw.html": {
+    "mtime": 1779711154.732668,
+    "hash": "a9da0f2f1df934ec17d6821fb632c378"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\debug_marks.html": {
+    "mtime": 1779712162.0556777,
+    "hash": "1387298b22889b13db49db7a883fc58f"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\marks_postback_result.html": {
+    "mtime": 1779706945.1133678,
+    "hash": "5ecaa6806ec6d6d96a323059018e6079"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\marks_raw.html": {
+    "mtime": 1779434860.5284016,
+    "hash": "dc46e11621096ba8b1c0afbc8067c452"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\proceedings_raw.html": {
+    "mtime": 1779434861.579703,
+    "hash": "fd40006313812e2df9ba22dc94442128"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\summary_postback_result.html": {
+    "mtime": 1778975147.026722,
+    "hash": "7c19bd9180e15ee1e524fc1cd031320c"
+  },
+  "C:\\VS Code\\AssignlyDesktop\\summary_raw.html": {
+    "mtime": 1779443333.6481364,
+    "hash": "bd9213072df85b57c4ec490ebf2e19b2"
+  }
+}

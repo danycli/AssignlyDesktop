@@ -25,7 +25,7 @@ public class Main extends Application {
             new DataCacheService(databaseManager),
             new PortalService()
         );
-        stage.initStyle(javafx.stage.StageStyle.UNDECORATED);
+        stage.initStyle(javafx.stage.StageStyle.DECORATED);
         stage.setMinWidth(1024);
         stage.setMinHeight(700);
         context.showSplash();

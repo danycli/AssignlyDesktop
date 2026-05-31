@@ -75,13 +75,13 @@ public class DashboardTabView {
     private void buildLoading() {
         contentPane.getChildren().clear();
         StackPane loading = new StackPane();
-        loading.setStyle("-fx-background-color: #F0EDEC;");
+        loading.setStyle("-fx-background-color: -color-bg-main;");
         VBox box = new VBox(10);
         box.setAlignment(Pos.CENTER);
         ProgressIndicator spinner = new ProgressIndicator();
         spinner.setMaxSize(28, 28);
         Label msg = new Label("Loading dashboard...");
-        msg.setStyle("-fx-text-fill: #888888; -fx-font-size: 13px;");
+        msg.setStyle("-fx-text-fill: -color-text-muted; -fx-font-size: 13px;");
         box.getChildren().addAll(spinner, msg);
         loading.getChildren().add(box);
         contentPane.getChildren().add(loading);
@@ -182,18 +182,29 @@ public class DashboardTabView {
         photoBox.setAlignment(Pos.TOP_CENTER);
         photoBox.setMinWidth(100);
         if (photoBytes != null && photoBytes.length > 0) {
-            Image img = new Image(new ByteArrayInputStream(photoBytes), 90, 90, true, true);
+            Image img = new Image(new ByteArrayInputStream(photoBytes));
             ImageView iv = new ImageView(img);
+            double iw = img.getWidth();
+            double ih = img.getHeight();
+            if (iw > 0 && ih > 0) {
+                double s = Math.min(iw, ih);
+                double x = (iw - s) / 2;
+                double y = (ih - s) / 2;
+                iv.setViewport(new javafx.geometry.Rectangle2D(x, y, s, s));
+            }
             iv.setFitWidth(90);
             iv.setFitHeight(90);
-            iv.setPreserveRatio(true);
+            iv.setPreserveRatio(false);
             iv.setSmooth(true);
-            Circle clip = new Circle(45, 45, 45);
+            Circle clip = new Circle();
+            clip.radiusProperty().bind(iv.fitWidthProperty().divide(2));
+            clip.centerXProperty().bind(iv.fitWidthProperty().divide(2));
+            clip.centerYProperty().bind(iv.fitHeightProperty().divide(2));
             iv.setClip(clip);
             photoBox.getChildren().add(iv);
         } else {
             Label placeholder = new Label("👤");
-            placeholder.setStyle("-fx-font-size: 40px; -fx-text-fill: #ccc;");
+            placeholder.setStyle("-fx-font-size: 40px; -fx-text-fill: -color-text-muted;");
             placeholder.setMinSize(90, 90);
             placeholder.setAlignment(Pos.CENTER);
             photoBox.getChildren().add(placeholder);
@@ -235,9 +246,13 @@ public class DashboardTabView {
         analyticsRow.getChildren().addAll(gpaCard, attendanceCard);
         content.getChildren().add(analyticsRow);
 
+        // RESIZING FIX: Set a safe minimum width for the dashboard VBox so side-by-side charts do not squeeze into unreadability
+        content.setMinWidth(800);
+
         ScrollPane scroll = new ScrollPane(content);
         scroll.setFitToWidth(true);
-        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        // RESIZING FIX: Allow horizontal scrollbars when the viewport gets extremely narrow, ensuring no information is hidden
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         scroll.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
         contentPane.getChildren().add(scroll);
     }
@@ -250,11 +265,11 @@ public class DashboardTabView {
         int row = 0;
         for (Map.Entry<String, String> entry : data.entrySet()) {
             Label keyLabel = new Label(entry.getKey());
-            keyLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: #888888; -fx-font-weight: 500;");
+            keyLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500;");
             keyLabel.setMinWidth(160);
 
             Label valLabel = new Label(entry.getValue());
-            valLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #1a1a1a; -fx-font-weight: 600;");
+            valLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: -color-text-main; -fx-font-weight: 600;");
             valLabel.setWrapText(true);
 
             grid.add(keyLabel, 0, row);
@@ -415,7 +430,7 @@ public class DashboardTabView {
         centerLabel.setMouseTransparent(true);
 
         Label avgValue = new Label(String.format("%.0f%%", avgPct));
-        avgValue.setStyle("-fx-font-size:26px;-fx-font-weight:800;-fx-text-fill:#004643;");
+        avgValue.setStyle("-fx-font-size:26px;-fx-font-weight:800;-fx-text-fill: -color-accent;");
 
         Label avgDesc = new Label("Average");
         avgDesc.setStyle("-fx-font-size:11px;-fx-font-weight:600;-fx-text-fill:#94a3b8;");

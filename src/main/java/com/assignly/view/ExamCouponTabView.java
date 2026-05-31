@@ -65,13 +65,13 @@ public class ExamCouponTabView {
     private void buildLoading() {
         contentPane.getChildren().clear();
         StackPane loading = new StackPane();
-        loading.setStyle("-fx-background-color: #F0EDEC;");
+        loading.setStyle("-fx-background-color: -color-bg-main;");
         VBox box = new VBox(10);
         box.setAlignment(Pos.CENTER);
         ProgressIndicator spinner = new ProgressIndicator();
         spinner.setMaxSize(28, 28);
         Label msg = new Label("Loading Exam Entry Coupon...");
-        msg.setStyle("-fx-text-fill: #888888; -fx-font-size: 13px;");
+        msg.setStyle("-fx-text-fill: -color-text-muted; -fx-font-size: 13px;");
         box.getChildren().addAll(spinner, msg);
         loading.getChildren().add(box);
         contentPane.getChildren().add(loading);
@@ -206,7 +206,7 @@ public class ExamCouponTabView {
 
         Button printBtn = new Button("⬇ Save as PDF");
         printBtn.setCursor(javafx.scene.Cursor.HAND);
-        printBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;"
+        printBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill:white;"
                 + "-fx-font-size:12px;-fx-font-weight:bold;-fx-background-radius:6;-fx-padding:8 16;");
         printBtn.setOnAction(e -> {
             printBtn.setDisable(true);
@@ -220,6 +220,7 @@ public class ExamCouponTabView {
         topBar.getChildren().addAll(title, spacer, refreshBtn, printBtn);
 
         // Web engine setup
+        webView.setZoom(context.preferencesService().loadPreferences().getZoomLevel());
         WebEngine engine = webView.getEngine();
         engine.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
 
@@ -231,6 +232,7 @@ public class ExamCouponTabView {
                         "var nav = document.getElementById('navigation'); if(nav) nav.style.display = 'none';" +
                         "var header = document.getElementById('header'); if(header) header.style.display = 'none';"
                 );
+                context.portalService().applyDarkOverlay(engine, context.preferencesService().loadPreferences().isDarkOverlay());
             }
         });
 

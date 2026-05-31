@@ -1,6 +1,7 @@
 package com.assignly.view;
 
 import com.assignly.util.AppContext;
+import com.assignly.util.ErrorReporter;
 import com.assignly.service.PortalRepository;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -25,6 +26,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import okhttp3.Response;
@@ -40,11 +42,14 @@ public class CoursePortalTabView {
     private StackPane contentPane;
     private HBox tabBar;
     private String activeTab = "";
+    private final List<Button> uploadButtons = new ArrayList<>();
+    private final java.util.function.Consumer<Boolean> connectivityListener = this::onConnectivityChanged;
 
     public CoursePortalTabView(AppContext context) {
         this.context = context;
         buildShell();
         loadTab("portal_mcq");
+        context.addConnectivityListener(connectivityListener);
     }
 
     private void buildShell() {
@@ -71,15 +76,9 @@ public class CoursePortalTabView {
     private Button tabBtn(String label, String id) {
         Button b = new Button(label);
         b.setUserData(id);
-        b.setCursor(javafx.scene.Cursor.HAND);
-        b.setStyle(tabStyle(false));
+        b.getStyleClass().add("custom-tab");
         b.setOnAction(e -> loadTab(id));
         return b;
-    }
-
-    private String tabStyle(boolean on) {
-        return on ? "-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:600;-fx-background-radius:6;-fx-padding:6 12;"
-                  : "-fx-background-color: -color-bg-card;-fx-text-fill:#666;-fx-font-size:11px;-fx-font-weight:500;-fx-background-radius:6;-fx-padding:6 12;-fx-border-color:#d5d0ce;-fx-border-radius:6;-fx-border-width:1;";
     }
 
     private void loadTab(String tabKey) {
@@ -88,11 +87,16 @@ public class CoursePortalTabView {
 
         for (var n : tabBar.getChildren()) {
             if (n instanceof Button b) {
-                b.setStyle(tabStyle(tabKey.equals(b.getUserData())));
+                boolean isActive = tabKey.equals(b.getUserData());
+                b.getStyleClass().remove("custom-tab-active");
+                if (isActive) {
+                    b.getStyleClass().add("custom-tab-active");
+                }
             }
         }
 
         contentPane.getChildren().clear();
+        uploadButtons.clear();
         switch (tabKey) {
             case "portal_mcq" -> loadMcqData();
             case "portal_subjective" -> loadSubjectiveData();
@@ -107,7 +111,7 @@ public class CoursePortalTabView {
             contentPane.getChildren().clear();
             VBox box = new VBox(10); box.setAlignment(Pos.CENTER);
             ProgressIndicator sp = new ProgressIndicator(); sp.setMaxSize(28,28);
-            Label l = new Label(msg); l.setStyle("-fx-text-fill:#888;-fx-font-size:12px;");
+            Label l = new Label(msg); l.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:12px;");
             box.getChildren().addAll(sp, l);
             contentPane.getChildren().add(new StackPane(box));
         });
@@ -117,16 +121,19 @@ public class CoursePortalTabView {
         VBox box = new VBox(14);
         box.setAlignment(Pos.CENTER);
         box.setPadding(new Insets(40, 28, 40, 28));
-        box.setStyle("-fx-background-color:#fff5f5;-fx-background-radius:12;-fx-border-color:#fee2e2;-fx-border-width:1;-fx-border-radius:12;-fx-max-width:550;");
+        box.getStyleClass().add("panel-info-danger");
+        box.setStyle("-fx-background-radius:12;-fx-border-radius:12;-fx-max-width:550;");
 
         Label icon = new Label("⚠️");
         icon.setStyle("-fx-font-size:32px;");
 
         Label titleLbl = new Label(title);
-        titleLbl.setStyle("-fx-text-fill:#991b1b;-fx-font-size:16px;-fx-font-weight:bold;");
+        titleLbl.getStyleClass().add("status-error");
+        titleLbl.setStyle("-fx-font-size:16px;");
 
         Label msgLbl = new Label(message);
-        msgLbl.setStyle("-fx-text-fill:#b91c1c;-fx-font-size:12px;-fx-text-alignment:center;");
+        msgLbl.getStyleClass().add("status-error");
+        msgLbl.setStyle("-fx-font-size:12px;-fx-text-alignment:center;");
         msgLbl.setWrapText(true);
 
         box.getChildren().addAll(icon, titleLbl, msgLbl);
@@ -155,14 +162,16 @@ public class CoursePortalTabView {
 
                 try {
                     java.nio.file.Files.writeString(java.nio.file.Paths.get("cts_dashboard_raw.html"), html);
-                } catch (Exception ignored) {}
+                } catch (IOException ex) {
+                    ErrorReporter.logError("CoursePortalTabView#loadMcqData write cts_dashboard_raw.html", ex);
+                }
 
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     try {
                         contentPane.getChildren().add(buildMcqView(html));
                     } catch (Exception ex) {
-                        ex.printStackTrace();
+                        ErrorReporter.notify(context, "Failed to parse MCQ tests. Portal layout may have changed.", "CoursePortalTabView#loadMcqData", ex);
                         contentPane.getChildren().clear();
                         contentPane.getChildren().add(buildErrorState(
                             "Parsing Error",
@@ -171,7 +180,7 @@ public class CoursePortalTabView {
                     }
                 });
             } catch (Exception e) {
-                e.printStackTrace();
+                ErrorReporter.notify(context, "Failed to load MCQ tests. Please try again.", "CoursePortalTabView#loadMcqData", e);
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
@@ -211,6 +220,7 @@ public class CoursePortalTabView {
             if (rows.size() > 1) {
                 VBox tableCard = buildNativeMcqTable(rows);
                 content.getChildren().add(tableCard);
+                content.setMinWidth(tableCard.getMinWidth() + 56);
             } else {
                 renderEmptyState(content);
             }
@@ -227,7 +237,6 @@ public class CoursePortalTabView {
         empty.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:12px;-fx-padding:10 0;");
         content.getChildren().add(empty);
     }
-
     private VBox buildNativeMcqTable(Elements rows) {
         VBox card = new VBox(0);
         card.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:8;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
@@ -240,6 +249,12 @@ public class CoursePortalTabView {
         for (Element hc : headerCells) {
             headers.add(hc.text().trim());
         }
+
+        double totalWidth = 0;
+        for (int i = 0; i < headers.size(); i++) {
+            totalWidth += mcqColW(headers.get(i), i, headers.size());
+        }
+        card.setMinWidth(totalWidth);
 
         HBox headerBox = new HBox(0);
         headerBox.setStyle("-fx-background-color: -color-bg-main;-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
@@ -259,7 +274,7 @@ public class CoursePortalTabView {
             if (cells.isEmpty()) continue;
 
             HBox dataRow = new HBox(0);
-            String bg = (r % 2 == 0) ? "#f8fafc" : "white";
+            String bg = (r % 2 == 0) ? "-color-bg-card" : "-color-bg-main";
             dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
 
             for (int c = 0; c < cells.size(); c++) {
@@ -277,7 +292,7 @@ public class CoursePortalTabView {
 
                     Button actBtn = new Button(linkText);
                     actBtn.setCursor(javafx.scene.Cursor.HAND);
-                    actBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
+                    actBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill: -color-bg-main;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
                     
                     actBtn.setOnAction(e -> loadMcqPaperView(href, linkText));
 
@@ -300,7 +315,6 @@ public class CoursePortalTabView {
             }
             card.getChildren().add(dataRow);
         }
-
         return card;
     }
 
@@ -310,7 +324,7 @@ public class CoursePortalTabView {
         if (l.contains("test") || l.contains("title")) return 200;
         if (l.contains("course")) return 280;
         if (l.contains("date") || l.contains("time")) return 180;
-        if (l.contains("action")) return 110;
+        if (l.contains("action")) return 140;
         return 120;
     }
 
@@ -339,7 +353,9 @@ public class CoursePortalTabView {
 
                 try {
                     java.nio.file.Files.writeString(java.nio.file.Paths.get("cts_paper_raw.html"), html);
-                } catch (Exception ignored) {}
+                } catch (IOException ex) {
+                    ErrorReporter.logError("CoursePortalTabView#loadMcqDetails write cts_paper_raw.html", ex);
+                }
 
                 Document doc = Jsoup.parse(html);
                 boolean isCompleted = doc.select("#DataContent_dvStudentOnlineTestResult").first() != null
@@ -352,7 +368,7 @@ public class CoursePortalTabView {
                         try {
                             contentPane.getChildren().add(buildNativeResultView(doc, pageUrl));
                         } catch (Exception ex) {
-                            ex.printStackTrace();
+                            ErrorReporter.logError("CoursePortalTabView#loadMcqDetails render native MCQ view", ex);
                             renderWebViewPaper(pageUrl, title);
                         }
                     } else {
@@ -360,7 +376,7 @@ public class CoursePortalTabView {
                     }
                 });
             } catch (Exception e) {
-                e.printStackTrace();
+                ErrorReporter.notify(context, "Failed to load MCQ details. Please try again.", "CoursePortalTabView#loadMcqDetails", e);
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
@@ -379,7 +395,7 @@ public class CoursePortalTabView {
 
         Button backBtn = new Button("← Back to MCQ Tests List");
         backBtn.setCursor(javafx.scene.Cursor.HAND);
-        backBtn.setStyle("-fx-background-color: -color-bg-card;-fx-text-fill:#004643;-fx-border-color:#004643;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
+        backBtn.setStyle("-fx-background-color: -color-bg-card;-fx-text-fill: -color-accent;-fx-border-color: -color-accent;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
         backBtn.setOnAction(e -> {
             activeTab = ""; // Force reload
             loadTab("portal_mcq");
@@ -417,7 +433,7 @@ public class CoursePortalTabView {
         scoreHeader.setAlignment(Pos.CENTER_LEFT);
         
         Label statusBadge = new Label("COMPLETED");
-        statusBadge.setStyle("-fx-background-color:#def7ec;-fx-text-fill:#03543f;-fx-font-size:10px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+        statusBadge.getStyleClass().add("badge-success");
         
         Label titleLabel = new Label("MCQ Test Scorecard");
         titleLabel.setStyle("-fx-font-size:18px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
@@ -442,7 +458,7 @@ public class CoursePortalTabView {
 
         VBox bigScoreCircle = new VBox(4);
         bigScoreCircle.setAlignment(Pos.CENTER);
-        bigScoreCircle.setStyle("-fx-background-color:#004643;-fx-background-radius:100;-fx-min-width:110;-fx-min-height:110;-fx-max-width:110;-fx-max-height:110;-fx-effect:dropshadow(three-pass-box,rgba(0,70,67,0.2),10,0,0,4);");
+        bigScoreCircle.setStyle("-fx-background-color: -color-accent;-fx-background-radius:100;-fx-min-width:110;-fx-min-height:110;-fx-max-width:110;-fx-max-height:110;-fx-effect:dropshadow(three-pass-box,rgba(0,70,67,0.2),10,0,0,4);");
         
         Label obtainScoreLbl = new Label(obtainMarks);
         obtainScoreLbl.setStyle("-fx-text-fill:white;-fx-font-size:32px;-fx-font-weight:bold;");
@@ -460,10 +476,12 @@ public class CoursePortalTabView {
             double o = Double.parseDouble(obtainMarks);
             double t = Double.parseDouble(totalMarks);
             if (t > 0) pctVal = (o / t) * 100.0;
-        } catch (Exception ignored) {}
+        } catch (NumberFormatException ex) {
+            ErrorReporter.logError("CoursePortalTabView#buildNativeResultView parse score", ex);
+        }
         
         Label pctLbl = new Label(String.format("%.1f%% Score", pctVal));
-        pctLbl.setStyle("-fx-font-size:22px;-fx-font-weight:bold;-fx-text-fill:#004643;");
+        pctLbl.setStyle("-fx-font-size:22px;-fx-font-weight:bold;-fx-text-fill: -color-accent;");
         
         Label feedbackLbl = new Label();
         if (pctVal >= 90) {
@@ -513,7 +531,7 @@ public class CoursePortalTabView {
 
         Button backBtn = new Button("← Back to MCQ Tests List");
         backBtn.setCursor(javafx.scene.Cursor.HAND);
-        backBtn.setStyle("-fx-background-color: -color-bg-card;-fx-text-fill:#004643;-fx-border-color:#004643;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
+        backBtn.setStyle("-fx-background-color: -color-bg-card;-fx-text-fill: -color-accent;-fx-border-color: -color-accent;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
         backBtn.setOnAction(e -> {
             activeTab = ""; // Force reload
             loadTab("portal_mcq");
@@ -547,14 +565,16 @@ public class CoursePortalTabView {
 
                 try {
                     java.nio.file.Files.writeString(java.nio.file.Paths.get("cts_subjective_raw.html"), html);
-                } catch (Exception ignored) {}
+                } catch (IOException ex) {
+                    ErrorReporter.logError("CoursePortalTabView#loadSubjectiveData write cts_subjective_raw.html", ex);
+                }
 
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     try {
                         contentPane.getChildren().add(buildSubjectiveView(html));
                     } catch (Exception ex) {
-                        ex.printStackTrace();
+                        ErrorReporter.notify(context, "Failed to parse Subjective Tests. Portal layout may have changed.", "CoursePortalTabView#loadSubjectiveData", ex);
                         contentPane.getChildren().clear();
                         contentPane.getChildren().add(buildErrorState(
                             "Parsing Error", 
@@ -563,7 +583,7 @@ public class CoursePortalTabView {
                     }
                 });
             } catch (Exception e) {
-                e.printStackTrace();
+                ErrorReporter.notify(context, "Failed to load Subjective Tests. Please try again.", "CoursePortalTabView#loadSubjectiveData", e);
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
@@ -607,6 +627,7 @@ public class CoursePortalTabView {
                 if (rows.size() > 1) {
                     VBox tableCard = buildNativeSubjectiveTable(rows);
                     content.getChildren().add(tableCard);
+                    content.setMinWidth(tableCard.getMinWidth() + 56);
                 } else {
                     renderEmptySubjectiveState(content);
                 }
@@ -652,6 +673,12 @@ public class CoursePortalTabView {
             headers.add(hc.text().trim());
         }
 
+        double totalWidth = 0;
+        for (int i = 0; i < headers.size(); i++) {
+            totalWidth += subjectiveColW(headers.get(i), i, headers.size());
+        }
+        card.setMinWidth(totalWidth);
+
         HBox headerBox = new HBox(0);
         headerBox.setStyle("-fx-background-color: -color-bg-main;-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
         for (int i = 0; i < headers.size(); i++) {
@@ -670,7 +697,7 @@ public class CoursePortalTabView {
             if (cells.isEmpty()) continue;
 
             HBox dataRow = new HBox(0);
-            String bg = (r % 2 == 0) ? "#f8fafc" : "white";
+            String bg = (r % 2 == 0) ? "-color-bg-card" : "-color-bg-main";
             dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
 
             for (int c = 0; c < cells.size(); c++) {
@@ -688,7 +715,7 @@ public class CoursePortalTabView {
 
                     Button actBtn = new Button(linkText);
                     actBtn.setCursor(javafx.scene.Cursor.HAND);
-                    actBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
+                    actBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill: -color-bg-main;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
                     
                     actBtn.setOnAction(e -> loadSubjectivePaperView(href, linkText));
 
@@ -709,9 +736,7 @@ public class CoursePortalTabView {
 
                 dataRow.getChildren().add(cellNode);
             }
-            card.getChildren().add(dataRow);
         }
-
         return card;
     }
 
@@ -721,22 +746,34 @@ public class CoursePortalTabView {
         if (l.contains("test") || l.contains("title") || l.contains("assignment")) return 200;
         if (l.contains("course")) return 280;
         if (l.contains("date") || l.contains("time") || l.contains("due")) return 180;
-        if (l.contains("action") || l.contains("status")) return 110;
+        if (l.contains("action") || l.contains("status")) return 140;
         return 120;
     }
 
     private void loadSubjectivePaperView(String relativeUrl, String title) {
-        String urlTemp = relativeUrl;
-        if (!urlTemp.startsWith("CTS/") && !urlTemp.startsWith("/CTS/")) {
-            urlTemp = "CTS/" + urlTemp;
-        }
-        final String pageUrl = urlTemp;
-
         showLoading("Loading Subjective Test details...");
 
         new Thread(() -> {
             try {
-                String html = context.portalRepository().fetchPageHtml(pageUrl);
+                String html;
+                if (context.portalRepository().isPostBackDownloadLink(relativeUrl)) {
+                    PortalRepository.PostBackLink postBackLink = context.portalRepository().extractPostBackLinkFromLink(relativeUrl);
+                    if (postBackLink == null) {
+                        throw new RuntimeException("Invalid postback link: " + relativeUrl);
+                    }
+                    String sourcePageUrl = postBackLink.sourcePageUrl();
+                    if (sourcePageUrl == null || sourcePageUrl.isBlank()) {
+                        sourcePageUrl = "CoursePortal.aspx?isTest=1";
+                    }
+                    html = context.portalRepository().postbackEvent(sourcePageUrl, postBackLink.info().target());
+                } else {
+                    String urlTemp = relativeUrl;
+                    if (!urlTemp.startsWith("CTS/") && !urlTemp.startsWith("/CTS/")) {
+                        urlTemp = "CTS/" + urlTemp;
+                    }
+                    html = context.portalRepository().fetchPageHtml(urlTemp);
+                }
+
                 if (html == null) {
                     Platform.runLater(() -> {
                         contentPane.getChildren().clear();
@@ -748,9 +785,19 @@ public class CoursePortalTabView {
                     return;
                 }
 
-                Platform.runLater(() -> renderWebViewPaper(pageUrl, title));
+                Document doc = Jsoup.parse(html);
+                
+                Platform.runLater(() -> {
+                    contentPane.getChildren().clear();
+                    try {
+                        contentPane.getChildren().add(buildNativeSubjectiveDetailView(doc, relativeUrl, title));
+                    } catch (Exception ex) {
+                        ErrorReporter.logError("CoursePortalTabView#loadSubjectivePaperView native render error, falling back to WebView", ex);
+                        renderWebViewPaper(relativeUrl, title);
+                    }
+                });
             } catch (Exception e) {
-                e.printStackTrace();
+                ErrorReporter.notify(context, "Failed to load Subjective Test details. Please try again.", "CoursePortalTabView#loadSubjectiveDetails", e);
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
@@ -760,6 +807,391 @@ public class CoursePortalTabView {
                 });
             }
         }).start();
+    }
+
+    private ScrollPane buildNativeSubjectiveDetailView(Document doc, String relativeUrl, String title) {
+        ScrollPane sp = new ScrollPane();
+        sp.setFitToWidth(true);
+        sp.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
+
+        VBox wrapper = new VBox(20);
+        wrapper.setPadding(new Insets(16, 28, 24, 28));
+        wrapper.setFillWidth(true);
+
+        Button backBtn = new Button("← Back to Subjective Tests List");
+        backBtn.setCursor(javafx.scene.Cursor.HAND);
+        backBtn.setStyle("-fx-background-color: -color-bg-card;-fx-text-fill: -color-accent;-fx-border-color: -color-accent;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
+        backBtn.setOnAction(e -> {
+            activeTab = ""; // Force reload
+            loadTab("portal_subjective");
+        });
+
+        HBox topBar = new HBox(backBtn);
+        topBar.setStyle("-fx-padding:0 0 4 0;");
+        wrapper.getChildren().add(topBar);
+
+        String headingText = title;
+        Element h3 = doc.select("h3").first();
+        if (h3 != null && !h3.text().trim().isEmpty()) {
+            headingText = h3.text().trim();
+        }
+
+        Label titleLabel = new Label(headingText);
+        titleLabel.setStyle("-fx-font-size:18px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
+
+        java.util.Map<String, String> metadata = new java.util.LinkedHashMap<>();
+        
+        record AttachmentInfo(String filename, String href) {}
+        List<AttachmentInfo> teacherAttachments = new ArrayList<>();
+        
+        String submittedFilename = null;
+        String submissionDate = null;
+        String obtainedMarks = null;
+
+        // Parse key-value metadata rows from tables
+        for (Element table : doc.select("table")) {
+            String tableId = table.id().toLowerCase();
+            if (tableId.contains("sidebar") || tableId.contains("menu")) continue;
+            
+            for (Element row : table.select("tr")) {
+                Elements cells = row.select("td, th");
+                if (cells.size() == 2) {
+                    String key = cells.get(0).text().trim().replaceAll(":$", "").trim();
+                    Element valCell = cells.get(1);
+                    String val = valCell.text().trim();
+                    
+                    if (!key.isEmpty() && !val.isEmpty()) {
+                        val = val.replaceAll("\\s+", " ");
+                        
+                        Elements anchors = valCell.select("a");
+                        for (Element a : anchors) {
+                            String href = a.attr("href");
+                            String onClick = a.attr("onclick");
+                            String aText = a.text().trim();
+                            
+                            if (href.toLowerCase().contains("download") || href.toLowerCase().contains("file") || 
+                                onClick.toLowerCase().contains("download") || onClick.toLowerCase().contains("file") ||
+                                href.toLowerCase().contains("assignmentfiles.aspx") || href.toLowerCase().contains("courseportalassignmentfiles.aspx")) {
+                                
+                                String finalHref = href;
+                                if (finalHref.isEmpty() || finalHref.equals("#")) {
+                                    PortalRepository.PostBackInfo postBackInfo = context.portalRepository().extractPostBackInfo(onClick);
+                                    if (postBackInfo != null) {
+                                        finalHref = context.portalRepository().toPostBackDownloadLink(postBackInfo, null);
+                                    }
+                                }
+                                if (!finalHref.isEmpty() && !finalHref.equals("#")) {
+                                    teacherAttachments.add(new AttachmentInfo(aText.isEmpty() ? "Download Instruction File" : aText, finalHref));
+                                }
+                            }
+                        }
+                        
+                        String keyLower = key.toLowerCase();
+                        if (keyLower.contains("submitted file") || keyLower.contains("submission file")) {
+                            submittedFilename = val;
+                        } else if (keyLower.contains("submission date") || keyLower.contains("submitted date")) {
+                            submissionDate = val;
+                        } else if (keyLower.contains("obtain") || keyLower.contains("grade") || keyLower.contains("score")) {
+                            obtainedMarks = val;
+                        }
+                        
+                        metadata.put(key, val);
+                    }
+                }
+            }
+        }
+
+        // Fallback: search for explicit label tags or spans on the page with details
+        for (Element span : doc.select("span[id*='lbl'], span[id*='lbl_']")) {
+            String id = span.id().toLowerCase();
+            String val = span.text().trim();
+            if (val.isEmpty()) continue;
+            
+            if (id.contains("lblcourse") && !metadata.containsKey("Course")) {
+                metadata.put("Course", val);
+            } else if (id.contains("lbltitle") && !metadata.containsKey("Title")) {
+                metadata.put("Title", val);
+            } else if (id.contains("lbltotalmarks") && !metadata.containsKey("Total Marks")) {
+                metadata.put("Total Marks", val);
+            } else if (id.contains("lbldeadline") && !metadata.containsKey("Deadline")) {
+                metadata.put("Deadline", val);
+            } else if (id.contains("lblstatus") && !metadata.containsKey("Status")) {
+                metadata.put("Status", val);
+            } else if (id.contains("lblsubmittedfile") && !metadata.containsKey("Submitted File")) {
+                submittedFilename = val;
+                metadata.put("Submitted File", val);
+            } else if (id.contains("lblsubmissiondate") && !metadata.containsKey("Submission Date")) {
+                submissionDate = val;
+                metadata.put("Submission Date", val);
+            }
+        }
+
+        // Search in all anchors for potential download files
+        for (Element a : doc.select("a[href]")) {
+            String href = a.attr("href");
+            String aText = a.text().trim();
+            if (href.toLowerCase().contains("assignmentfiles.aspx") || href.toLowerCase().contains("courseportalassignmentfiles.aspx")) {
+                boolean exists = false;
+                for (AttachmentInfo exist : teacherAttachments) {
+                    if (exist.href().equals(href)) { exists = true; break; }
+                }
+                if (!exists) {
+                    teacherAttachments.add(new AttachmentInfo(aText.isEmpty() ? "Download Assignment File" : aText, href));
+                }
+            }
+        }
+
+        if (metadata.isEmpty()) {
+            throw new RuntimeException("Could not parse test details from page.");
+        }
+
+        // 1. Info Card
+        VBox scorecard = new VBox(20);
+        scorecard.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:12;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:12;-fx-padding:24;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.03),15,0,0,3);");
+        
+        HBox scoreHeader = new HBox(12);
+        scoreHeader.setAlignment(Pos.CENTER_LEFT);
+        
+        Label statusBadge = new Label("SUBJECTIVE TEST");
+        statusBadge.getStyleClass().add("badge-info");
+        
+        scoreHeader.getChildren().addAll(titleLabel, statusBadge);
+        scorecard.getChildren().add(scoreHeader);
+
+        VBox detailBox = new VBox(0);
+        detailBox.setStyle("-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:8;-fx-background-radius:8;-fx-background-color: -color-bg-main;");
+        
+        int rowIndex = 0;
+        for (java.util.Map.Entry<String, String> entry : metadata.entrySet()) {
+            String key = entry.getKey();
+            String val = entry.getValue();
+            
+            if (key.length() > 50 || val.length() > 300) continue;
+            if (key.toLowerCase().contains("validation") || key.toLowerCase().contains("error")) continue;
+            
+            boolean bg = (rowIndex % 2 == 0);
+            detailBox.getChildren().add(resultRow(key, val, bg));
+            rowIndex++;
+        }
+        
+        scorecard.getChildren().add(detailBox);
+        wrapper.getChildren().add(scorecard);
+
+        // 2. Attachments Card
+        if (!teacherAttachments.isEmpty()) {
+            VBox attachmentsCard = new VBox(12);
+            attachmentsCard.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:12;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:12;-fx-padding:20;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+            
+            Label attachTitle = new Label("Attachments / Instructions Files");
+            attachTitle.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
+            attachmentsCard.getChildren().add(attachTitle);
+            
+            VBox fileList = new VBox(8);
+            for (AttachmentInfo attach : teacherAttachments) {
+                HBox fileRow = new HBox(12);
+                fileRow.setAlignment(Pos.CENTER_LEFT);
+                fileRow.setStyle("-fx-padding:8 12;-fx-background-color: -color-bg-main;-fx-background-radius:6;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:6;");
+                
+                Label fileIcon = new Label("📄");
+                fileIcon.setStyle("-fx-font-size:16px;");
+                
+                Label fileName = new Label(attach.filename());
+                fileName.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-main;-fx-font-weight:bold;");
+                HBox.setHgrow(fileName, Priority.ALWAYS);
+                
+                Button dlBtn = new Button("Download");
+                dlBtn.setCursor(javafx.scene.Cursor.HAND);
+                dlBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill: -color-bg-main;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
+                
+                final String finalCourse = metadata.getOrDefault("Course", "Subjective");
+                dlBtn.setOnAction(e -> triggerAssignmentDownload(attach.href(), attach.filename(), finalCourse, dlBtn));
+                
+                fileRow.getChildren().addAll(fileIcon, fileName, dlBtn);
+                fileList.getChildren().add(fileRow);
+            }
+            attachmentsCard.getChildren().add(fileList);
+            wrapper.getChildren().add(attachmentsCard);
+        }
+
+        // 3. Submission Card
+        VBox submissionCard = new VBox(14);
+        submissionCard.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius:12;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:12;-fx-padding:20;-fx-effect:dropshadow(three-pass-box,rgba(0,0,0,0.02),10,0,0,2);");
+        
+        Label subTitle = new Label("Your Submission");
+        subTitle.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
+        submissionCard.getChildren().add(subTitle);
+        
+        boolean hasSubmitted = (submittedFilename != null && !submittedFilename.isEmpty() && !submittedFilename.equals("-") && !submittedFilename.toLowerCase().contains("not submitted"));
+        
+        if (hasSubmitted) {
+            VBox subInfo = new VBox(8);
+            subInfo.getStyleClass().add("panel-info-success");
+            
+            HBox statusRow = new HBox(8);
+            statusRow.setAlignment(Pos.CENTER_LEFT);
+            Label checkIcon = new Label("✅");
+            checkIcon.setStyle("-fx-font-size:16px;");
+            Label statusLbl = new Label("Submitted Successfully");
+            statusLbl.getStyleClass().add("status-success");
+            statusLbl.setStyle("-fx-font-size:13px;");
+            statusRow.getChildren().addAll(checkIcon, statusLbl);
+            
+            Label fileLbl = new Label("File: " + submittedFilename);
+            fileLbl.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-main;-fx-font-weight:bold;");
+            
+            subInfo.getChildren().addAll(statusRow, fileLbl);
+            if (submissionDate != null && !submissionDate.isEmpty()) {
+                Label dateLbl = new Label("Submitted on: " + submissionDate);
+                dateLbl.getStyleClass().add("status-success");
+                dateLbl.setStyle("-fx-font-size:11px;");
+                subInfo.getChildren().add(dateLbl);
+            }
+            submissionCard.getChildren().add(subInfo);
+        } else {
+            VBox noSubInfo = new VBox(8);
+            noSubInfo.getStyleClass().add("panel-info-danger");
+            
+            HBox statusRow = new HBox(8);
+            statusRow.setAlignment(Pos.CENTER_LEFT);
+            Label warningIcon = new Label("⚠️");
+            warningIcon.setStyle("-fx-font-size:16px;");
+            Label statusLbl = new Label("Not Submitted");
+            statusLbl.getStyleClass().add("status-error");
+            statusLbl.setStyle("-fx-font-size:13px;");
+            statusRow.getChildren().addAll(warningIcon, statusLbl);
+            
+            Label descLbl = new Label("You have not uploaded any solution file for this test yet.");
+            descLbl.getStyleClass().add("status-error");
+            descLbl.setStyle("-fx-font-size:11px;");
+            
+            noSubInfo.getChildren().addAll(statusRow, descLbl);
+            submissionCard.getChildren().add(noSubInfo);
+        }
+        
+        Element fileInput = doc.select("input[type=file]").first();
+        boolean openForUpload = (fileInput != null);
+        
+        if (openForUpload) {
+            VBox uploadForm = new VBox(10);
+            uploadForm.setStyle("-fx-padding:16 0 0 0;-fx-border-color: -color-border;-fx-border-width:1 0 0 0;");
+            
+            Label selectFileLbl = new Label(hasSubmitted ? "Update Submission File:" : "Upload Submission File:");
+            selectFileLbl.setStyle("-fx-font-size:12px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
+            
+            Label selectedFileLabel = new Label("No file chosen");
+            selectedFileLabel.setStyle("-fx-font-size:11px;-fx-text-fill: -color-text-muted;");
+            
+            Button browseBtn = new Button("📁 Choose File...");
+            browseBtn.setCursor(javafx.scene.Cursor.HAND);
+            browseBtn.setStyle("-fx-background-color: -color-bg-main;-fx-text-fill: -color-text-main;-fx-border-color: -color-border;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:11px;-fx-padding:5 10;");
+            
+            final File[] selectedFileHolder = new File[1];
+            browseBtn.setOnAction(e -> {
+                FileChooser fileChooser = new FileChooser();
+                fileChooser.setTitle("Select Solution File to Upload");
+                fileChooser.getExtensionFilters().addAll(
+                    new FileChooser.ExtensionFilter("All Files", "*.*"),
+                    new FileChooser.ExtensionFilter("PDF Files", "*.pdf"),
+                    new FileChooser.ExtensionFilter("ZIP Files", "*.zip"),
+                    new FileChooser.ExtensionFilter("Word Documents", "*.doc", "*.docx")
+                );
+                File selected = fileChooser.showOpenDialog(context.stage());
+                if (selected != null) {
+                    selectedFileHolder[0] = selected;
+                    selectedFileLabel.setText(selected.getName() + " (" + formatFileSize(selected.length()) + ")");
+                    selectedFileLabel.setStyle("-fx-font-size:11px;-fx-text-fill:#15803d;-fx-font-weight:bold;");
+                }
+            });
+            
+            Button submitBtn = new Button(hasSubmitted ? "Change File Submission" : "Submit File");
+            submitBtn.setCursor(javafx.scene.Cursor.HAND);
+            submitBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill:white;-fx-font-size:12px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:6 14;");
+            submitBtn.setDisable(true);
+            
+            selectedFileLabel.textProperty().addListener((o, oldVal, newVal) -> {
+                submitBtn.setDisable(selectedFileHolder[0] == null);
+            });
+            
+            submitBtn.setOnAction(e -> {
+                if (selectedFileHolder[0] != null) {
+                    triggerNativeSubjectiveUpload(relativeUrl, selectedFileHolder[0], submitBtn, title);
+                }
+            });
+            
+            HBox browseRow = new HBox(8, browseBtn, selectedFileLabel);
+            browseRow.setAlignment(Pos.CENTER_LEFT);
+            
+            HBox submitRow = new HBox(submitBtn);
+            submitRow.setStyle("-fx-padding:8 0 0 0;");
+            
+            uploadForm.getChildren().addAll(selectFileLbl, browseRow, submitRow);
+            submissionCard.getChildren().add(uploadForm);
+            
+            uploadButtons.add(submitBtn);
+            applyOfflineStateIfOffline(submitBtn, submitBtn.getText());
+        } else {
+            Label closedLbl = new Label("🔒 Test submission is closed.");
+            closedLbl.setStyle("-fx-text-fill:#b91c1c;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:10 0 0 0;");
+            submissionCard.getChildren().add(closedLbl);
+        }
+        
+        wrapper.getChildren().add(submissionCard);
+        
+        sp.setContent(wrapper);
+        return sp;
+    }
+
+    private void triggerNativeSubjectiveUpload(String submitUrl, File file, Button btn, String title) {
+        if (!context.isOnline()) {
+            showErrorDialog("Upload Offline", "Cannot upload files in offline mode.");
+            return;
+        }
+        
+        if (btn != null) {
+            Platform.runLater(() -> btn.setDisable(true));
+        }
+        showLoading("Uploading solution file...");
+        
+        new Thread(() -> {
+            try {
+                PortalRepository.UploadResult result = context.portalRepository().uploadAssignment(submitUrl, file);
+                
+                Platform.runLater(() -> {
+                    if (btn != null) btn.setDisable(false);
+                    
+                    if (result instanceof PortalRepository.UploadResult.Success) {
+                        showSuccessDialog("Upload Complete", "Subjective solution uploaded successfully!");
+                        loadSubjectivePaperView(submitUrl, title);
+                    } else {
+                        loadSubjectivePaperView(submitUrl, title);
+                        
+                        if (result instanceof PortalRepository.UploadResult.NetworkError) {
+                            showErrorDialog("Upload Failed", "Network connection error. Please try again.");
+                        } else if (result instanceof PortalRepository.UploadResult.Timeout) {
+                            showErrorDialog("Upload Failed", "Request timed out. The server might be slow or file might be too large.");
+                        } else if (result instanceof PortalRepository.UploadResult.Rejected rejected) {
+                            showErrorDialog("Upload Rejected", rejected.reason());
+                        } else if (result instanceof PortalRepository.UploadResult.Error err) {
+                            showErrorDialog("Upload Failed", err.message());
+                        }
+                    }
+                });
+            } catch (Exception ex) {
+                ErrorReporter.logError("CoursePortalTabView#triggerNativeSubjectiveUpload", ex);
+                Platform.runLater(() -> {
+                    if (btn != null) btn.setDisable(false);
+                    loadSubjectivePaperView(submitUrl, title);
+                    showErrorDialog("Upload Error", "An unexpected error occurred: " + ex.getMessage());
+                });
+            }
+        }).start();
+    }
+
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        int exp = (int) (Math.log(bytes) / Math.log(1024));
+        char pre = "KMGTPE".charAt(exp - 1);
+        return String.format("%.1f %sB", bytes / Math.pow(1024, exp), pre);
     }
 
     private void loadAssignmentsData() {
@@ -780,14 +1212,16 @@ public class CoursePortalTabView {
 
                 try {
                     java.nio.file.Files.writeString(java.nio.file.Paths.get("cts_assignments_raw.html"), html);
-                } catch (Exception ignored) {}
+                } catch (IOException ex) {
+                    ErrorReporter.logError("CoursePortalTabView#loadAssignmentsData write cts_assignments_raw.html", ex);
+                }
 
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     try {
                         contentPane.getChildren().add(buildAssignmentsView(html));
                     } catch (Exception ex) {
-                        ex.printStackTrace();
+                        ErrorReporter.notify(context, "Failed to parse Assignments Summary. Portal layout may have changed.", "CoursePortalTabView#loadAssignmentsData", ex);
                         contentPane.getChildren().clear();
                         contentPane.getChildren().add(buildErrorState(
                             "Parsing Error",
@@ -796,7 +1230,7 @@ public class CoursePortalTabView {
                     }
                 });
             } catch (Exception e) {
-                e.printStackTrace();
+                ErrorReporter.notify(context, "Failed to load Assignments Summary. Please try again.", "CoursePortalTabView#loadAssignmentsData", e);
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
@@ -840,6 +1274,7 @@ public class CoursePortalTabView {
                 if (rows.size() > 1) {
                     VBox tableCard = buildNativeAssignmentsTable(rows);
                     content.getChildren().add(tableCard);
+                    content.setMinWidth(tableCard.getMinWidth() + 56);
                 } else {
                     renderEmptyAssignmentsState(content);
                 }
@@ -885,6 +1320,12 @@ public class CoursePortalTabView {
             headers.add(hc.text().trim());
         }
 
+        double totalWidth = 0;
+        for (int i = 0; i < headers.size(); i++) {
+            totalWidth += assignmentsColW(headers.get(i), i, headers.size());
+        }
+        card.setMinWidth(totalWidth);
+
         HBox headerBox = new HBox(0);
         headerBox.setStyle("-fx-background-color: -color-bg-main;-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
         for (int i = 0; i < headers.size(); i++) {
@@ -904,7 +1345,7 @@ public class CoursePortalTabView {
 
             HBox dataRow = new HBox(0);
             dataRow.setAlignment(Pos.CENTER_LEFT);
-            String bg = (r % 2 == 0) ? "#f8fafc" : "white";
+            String bg = (r % 2 == 0) ? "-color-bg-card" : "-color-bg-main";
             dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
 
             String courseTitle = "";
@@ -940,9 +1381,9 @@ public class CoursePortalTabView {
                     Label badge = new Label(txt);
                     boolean isSubmitted = txt.toLowerCase().contains("submitted") && !txt.toLowerCase().contains("not");
                     if (isSubmitted) {
-                        badge.setStyle("-fx-background-color:#def7ec;-fx-text-fill:#03543f;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                        badge.getStyleClass().add("badge-success");
                     } else {
-                        badge.setStyle("-fx-background-color:#fde8e8;-fx-text-fill:#9b1c1c;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                        badge.getStyleClass().add("badge-danger");
                     }
                     HBox wrapper = new HBox(badge);
                     wrapper.setAlignment(Pos.CENTER_LEFT);
@@ -953,9 +1394,9 @@ public class CoursePortalTabView {
                 } else if (colHeader.contains("status")) {
                     Label badge = new Label(txt);
                     if (isRowClosed) {
-                        badge.setStyle("-fx-background-color:#f3f4f6;-fx-text-fill:#4b5563;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                        badge.getStyleClass().add("badge-muted");
                     } else {
-                        badge.setStyle("-fx-background-color:#eff6ff;-fx-text-fill:#1e40af;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                        badge.getStyleClass().add("badge-info");
                     }
                     HBox wrapper = new HBox(badge);
                     wrapper.setAlignment(Pos.CENTER_LEFT);
@@ -967,7 +1408,7 @@ public class CoursePortalTabView {
                     String href = context.portalRepository().extractAssignmentDownloadLink(cell);
                     Button dlBtn = new Button("Download");
                     dlBtn.setCursor(javafx.scene.Cursor.HAND);
-                    dlBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
+                    dlBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill: -color-bg-main;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
                     
                     final String finalCourse = courseTitle;
                     final String finalAssign = assignmentTitle;
@@ -988,10 +1429,19 @@ public class CoursePortalTabView {
                     if (!isRowClosed) {
                         String submitUrl = context.portalRepository().extractAssignmentSubmitLink(cell, "CoursePortal.aspx");
                         if (!submitUrl.isEmpty()) {
-                            Button subBtn = new Button("Change File");
+                            String btnText = "Submit";
+                            Element aOrInput = cell.select("a, button, input[type=submit], input[type=button]").first();
+                            if (aOrInput != null) {
+                                String val = aOrInput.attr("value").trim();
+                                if (val.isEmpty()) val = aOrInput.text().trim();
+                                if (!val.isEmpty()) btnText = val;
+                            }
+                            Button subBtn = new Button(btnText);
                             subBtn.setCursor(javafx.scene.Cursor.HAND);
-                            subBtn.setStyle("-fx-background-color:#23A9BD;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
+                            subBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
                             subBtn.setOnAction(e -> triggerAssignmentUpload(submitUrl, subBtn));
+                            uploadButtons.add(subBtn);
+                            applyOfflineStateIfOffline(subBtn, btnText);
 
                             HBox wrapper = new HBox(subBtn);
                             wrapper.setAlignment(Pos.CENTER_LEFT);
@@ -1088,7 +1538,7 @@ public class CoursePortalTabView {
                                     java.nio.file.Files.write(file.toPath(), fileBytes);
                                     Platform.runLater(() -> showSuccessDialog("Download Complete", "File saved successfully: " + file.getName()));
                                 } catch (Exception ex) {
-                                    ex.printStackTrace();
+                                    ErrorReporter.logError("CoursePortalTabView#triggerAssignmentDownload save file", ex);
                                     Platform.runLater(() -> showErrorDialog("Download Failed", "Error saving file: " + ex.getMessage()));
                                 }
                             }).start();
@@ -1102,7 +1552,7 @@ public class CoursePortalTabView {
                     }
                 });
             } catch (Exception ex) {
-                ex.printStackTrace();
+                ErrorReporter.logError("CoursePortalTabView#triggerAssignmentDownload", ex);
                 Platform.runLater(() -> {
                     if (btn != null) btn.setDisable(false);
                     showErrorDialog("Download Error", "An unexpected error occurred: " + ex.getMessage());
@@ -1112,6 +1562,10 @@ public class CoursePortalTabView {
     }
 
     private void triggerAssignmentUpload(String submitUrl, Button btn) {
+        if (!context.isOnline()) {
+            showErrorDialog("Upload Offline", "Cannot upload assignments in offline mode.");
+            return;
+        }
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("Select Assignment File to Upload");
         fileChooser.getExtensionFilters().addAll(
@@ -1155,7 +1609,7 @@ public class CoursePortalTabView {
                     }
                 });
             } catch (Exception ex) {
-                ex.printStackTrace();
+                ErrorReporter.logError("CoursePortalTabView#triggerAssignmentUpload", ex);
                 Platform.runLater(() -> {
                     if (btn != null) btn.setDisable(false);
                     loadAssignmentsData();
@@ -1176,14 +1630,14 @@ public class CoursePortalTabView {
     private double assignmentsColW(String h, int i, int total) {
         String l = h.toLowerCase();
         if (l.contains("#")) return 40;
-        if (l.contains("course")) return 180;
-        if (l.contains("title")) return 150;
+        if (l.contains("course")) return 240;
+        if (l.contains("title")) return 200;
         if (l.contains("start")) return 110;
         if (l.contains("deadline") || l.contains("due")) return 140;
-        if (l.contains("submission")) return 110;
-        if (l.contains("status")) return 80;
+        if (l.contains("submission")) return 140;
+        if (l.contains("status")) return 130;
         if (l.contains("download") || l.contains("dowload")) return 100;
-        if (l.contains("submit")) return 90;
+        if (l.contains("submit")) return 120;
         return 100;
     }
 
@@ -1206,7 +1660,9 @@ public class CoursePortalTabView {
 
                 try {
                     java.nio.file.Files.writeString(java.nio.file.Paths.get("course_contents_raw.html"), html);
-                } catch (Exception ignored) {}
+                } catch (IOException ex) {
+                    ErrorReporter.logError("CoursePortalTabView#loadCourseContentsData write course_contents_raw.html", ex);
+                }
 
                 List<String[]> courses = context.portalRepository().parseDropdownOptions(html, "course");
                 if (courses.isEmpty()) {
@@ -1228,7 +1684,7 @@ public class CoursePortalTabView {
                             contentPane.getChildren().add(buildCourseContentsSelectorView(finalCourses, finalHtml));
                         }
                     } catch (Exception ex) {
-                        ex.printStackTrace();
+                        ErrorReporter.notify(context, "Failed to render Course Contents. Portal layout may have changed.", "CoursePortalTabView#loadCourseContentsData", ex);
                         contentPane.getChildren().clear();
                         contentPane.getChildren().add(buildErrorState(
                             "UI Render Error",
@@ -1237,7 +1693,7 @@ public class CoursePortalTabView {
                     }
                 });
             } catch (Exception e) {
-                e.printStackTrace();
+                ErrorReporter.notify(context, "Failed to load Course Contents. Please try again.", "CoursePortalTabView#loadCourseContentsData", e);
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
@@ -1289,7 +1745,7 @@ public class CoursePortalTabView {
             String title = course[1];
 
             HBox dataRow = new HBox(0);
-            String bg = (i % 2 == 1) ? "#f8fafc" : "white";
+            String bg = (i % 2 == 1) ? "-color-bg-card" : "-color-bg-main";
             dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
             dataRow.setAlignment(Pos.CENTER_LEFT);
 
@@ -1305,7 +1761,7 @@ public class CoursePortalTabView {
 
             Button viewBtn = new Button("View Contents");
             viewBtn.setCursor(javafx.scene.Cursor.HAND);
-            viewBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 12;");
+            viewBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill: -color-bg-main;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 12;");
             viewBtn.setOnAction(e -> loadCourseContentsDetails(val, title, rawHtml));
 
             HBox btnWrapper = new HBox(viewBtn);
@@ -1354,7 +1810,9 @@ public class CoursePortalTabView {
 
                 try {
                     java.nio.file.Files.writeString(java.nio.file.Paths.get("course_contents_postback.html"), resultHtml);
-                } catch (Exception ignored) {}
+                } catch (IOException ex) {
+                    ErrorReporter.logError("CoursePortalTabView#loadCourseContentsDetails write course_contents_postback.html", ex);
+                }
 
                 final String finalResult = resultHtml;
                 Platform.runLater(() -> {
@@ -1362,7 +1820,7 @@ public class CoursePortalTabView {
                     try {
                         contentPane.getChildren().add(buildCourseContentsDetailView(courseId, courseTitle, finalResult, pageHtml));
                     } catch (Exception ex) {
-                        ex.printStackTrace();
+                        ErrorReporter.notify(context, "Failed to parse Course Contents. Portal layout may have changed.", "CoursePortalTabView#loadCourseContentsDetails", ex);
                         contentPane.getChildren().add(buildErrorState(
                             "Parsing Error",
                             "Failed to read the course content table cleanly."
@@ -1370,7 +1828,7 @@ public class CoursePortalTabView {
                     }
                 });
             } catch (Exception e) {
-                e.printStackTrace();
+                ErrorReporter.notify(context, "Failed to load Course Contents. Please try again.", "CoursePortalTabView#loadCourseContentsDetails", e);
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
@@ -1393,7 +1851,7 @@ public class CoursePortalTabView {
 
         Button backBtn = new Button("← Back to Subjects");
         backBtn.setCursor(javafx.scene.Cursor.HAND);
-        backBtn.setStyle("-fx-background-color: -color-bg-card;-fx-text-fill:#004643;-fx-border-color:#004643;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
+        backBtn.setStyle("-fx-background-color: -color-bg-card;-fx-text-fill: -color-accent;-fx-border-color: -color-accent;-fx-border-width:1;-fx-border-radius:4;-fx-background-radius:4;-fx-font-size:12px;-fx-font-weight:bold;-fx-padding:6 12;");
         backBtn.setOnAction(e -> {
             activeTab = ""; // Force reload
             loadTab("portal_contents");
@@ -1431,7 +1889,7 @@ public class CoursePortalTabView {
         if (!filesToDownload.isEmpty()) {
             Button downloadAllBtn = new Button("⬇ Download All (" + filesToDownload.size() + " files)");
             downloadAllBtn.setCursor(javafx.scene.Cursor.HAND);
-            downloadAllBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:12px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:6 12;");
+            downloadAllBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill: -color-bg-main;-fx-font-size:12px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:6 12;");
             downloadAllBtn.setOnAction(e -> triggerDownloadAll(filesToDownload, courseId, courseTitle, html, originalPageHtml));
             topBar.getChildren().add(downloadAllBtn);
         }
@@ -1450,6 +1908,7 @@ public class CoursePortalTabView {
                 if (rows.size() > 1) {
                     VBox tableCard = buildNativeContentsTable(rows, courseTitle);
                     content.getChildren().add(tableCard);
+                    content.setMinWidth(tableCard.getMinWidth() + 56);
                 } else {
                     renderEmptyContentsState(content);
                 }
@@ -1495,6 +1954,12 @@ public class CoursePortalTabView {
             headers.add(hc.text().trim());
         }
 
+        double totalWidth = 0;
+        for (int i = 0; i < headers.size(); i++) {
+            totalWidth += contentsColW(headers.get(i), i, headers.size());
+        }
+        card.setMinWidth(totalWidth);
+
         HBox headerBox = new HBox(0);
         headerBox.setStyle("-fx-background-color: -color-bg-main;-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
         for (int i = 0; i < headers.size(); i++) {
@@ -1513,7 +1978,7 @@ public class CoursePortalTabView {
             if (cells.isEmpty()) continue;
 
             HBox dataRow = new HBox(0);
-            String bg = (r % 2 == 0) ? "#f8fafc" : "white";
+            String bg = (r % 2 == 0) ? "-color-bg-card" : "-color-bg-main";
             dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
             dataRow.setAlignment(Pos.CENTER_LEFT);
 
@@ -1538,7 +2003,7 @@ public class CoursePortalTabView {
 
                     Button actBtn = new Button(linkText);
                     actBtn.setCursor(javafx.scene.Cursor.HAND);
-                    actBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 12;");
+                    actBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill: -color-bg-main;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 12;");
                     
                     final String finalTitle = titleText;
                     final String finalDesc = descText;
@@ -1715,7 +2180,7 @@ public class CoursePortalTabView {
                                         showSuccessDialog("Download Complete", "File saved: " + file.getName());
                                     });
                                 } catch (Exception ex) {
-                                    ex.printStackTrace();
+                                    ErrorReporter.logError("CoursePortalTabView#triggerCourseDocumentDownload save file", ex);
                                     Platform.runLater(() -> {
                                         if (btn != null) btn.setDisable(false);
                                         showErrorDialog("Download Failed", "Error saving file: " + ex.getMessage());
@@ -1731,7 +2196,7 @@ public class CoursePortalTabView {
                     });
                 }
             } catch (Exception ex) {
-                ex.printStackTrace();
+                ErrorReporter.logError("CoursePortalTabView#triggerCourseDocumentDownload", ex);
                 Platform.runLater(() -> {
                     if (btn != null) btn.setDisable(false);
                     showErrorDialog("Download Error", "Connection failed: " + ex.getMessage());
@@ -1806,7 +2271,7 @@ public class CoursePortalTabView {
                         }
                     }
                 } catch (Exception ex) {
-                    ex.printStackTrace();
+                    ErrorReporter.logError("CoursePortalTabView#triggerDownloadAll", ex);
                     failedFiles.add(docTitle + " (" + ex.getMessage() + ")");
                 }
             }
@@ -1818,7 +2283,7 @@ public class CoursePortalTabView {
                 try {
                     contentPane.getChildren().add(buildCourseContentsDetailView(courseId, courseTitle, html, originalPageHtml));
                 } catch (Exception ex) {
-                    ex.printStackTrace();
+                    ErrorReporter.logError("CoursePortalTabView#triggerDownloadAll refresh view", ex);
                     activeTab = "";
                     loadTab("portal_contents");
                 }
@@ -1855,7 +2320,7 @@ public class CoursePortalTabView {
                     try {
                         contentPane.getChildren().add(buildPendingAssignmentsView(html));
                     } catch (Exception ex) {
-                        ex.printStackTrace();
+                        ErrorReporter.notify(context, "Failed to parse Pending Assignments. Portal layout may have changed.", "CoursePortalTabView#loadPendingAssignmentsData", ex);
                         contentPane.getChildren().clear();
                         contentPane.getChildren().add(buildErrorState(
                             "Parsing Error",
@@ -1864,7 +2329,7 @@ public class CoursePortalTabView {
                     }
                 });
             } catch (Exception e) {
-                e.printStackTrace();
+                ErrorReporter.notify(context, "Failed to load Pending Assignments. Please try again.", "CoursePortalTabView#loadPendingAssignmentsData", e);
                 Platform.runLater(() -> {
                     contentPane.getChildren().clear();
                     contentPane.getChildren().add(buildErrorState(
@@ -1908,6 +2373,7 @@ public class CoursePortalTabView {
                 if (rows.size() > 1) {
                     VBox tableCard = buildNativePendingTable(rows);
                     content.getChildren().add(tableCard);
+                    content.setMinWidth(tableCard.getMinWidth() + 56);
                 } else {
                     renderEmptyPendingState(content);
                 }
@@ -1953,6 +2419,12 @@ public class CoursePortalTabView {
             headers.add(hc.text().trim());
         }
 
+        double totalWidth = 0;
+        for (int i = 0; i < headers.size(); i++) {
+            totalWidth += pendingColW(headers.get(i), i, headers.size());
+        }
+        card.setMinWidth(totalWidth);
+
         HBox headerBox = new HBox(0);
         headerBox.setStyle("-fx-background-color: -color-bg-main;-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
         for (int i = 0; i < headers.size(); i++) {
@@ -1972,7 +2444,7 @@ public class CoursePortalTabView {
 
             HBox dataRow = new HBox(0);
             dataRow.setAlignment(Pos.CENTER_LEFT);
-            String bg = (r % 2 == 0) ? "#f8fafc" : "white";
+            String bg = (r % 2 == 0) ? "-color-bg-card" : "-color-bg-main";
             dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:12 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
 
             String courseTitle = "";
@@ -2008,9 +2480,9 @@ public class CoursePortalTabView {
                     Label badge = new Label(txt);
                     boolean isSubmitted = txt.toLowerCase().contains("submitted") && !txt.toLowerCase().contains("not");
                     if (isSubmitted) {
-                        badge.setStyle("-fx-background-color:#def7ec;-fx-text-fill:#03543f;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                        badge.getStyleClass().add("badge-success");
                     } else {
-                        badge.setStyle("-fx-background-color:#fde8e8;-fx-text-fill:#9b1c1c;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                        badge.getStyleClass().add("badge-danger");
                     }
                     HBox wrapper = new HBox(badge);
                     wrapper.setAlignment(Pos.CENTER_LEFT);
@@ -2021,9 +2493,9 @@ public class CoursePortalTabView {
                 } else if (colHeader.contains("status")) {
                     Label badge = new Label(txt);
                     if (isRowClosed) {
-                        badge.setStyle("-fx-background-color:#f3f4f6;-fx-text-fill:#4b5563;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                        badge.getStyleClass().add("badge-muted");
                     } else {
-                        badge.setStyle("-fx-background-color:#eff6ff;-fx-text-fill:#1e40af;-fx-font-size:11px;-fx-font-weight:bold;-fx-padding:4 8;-fx-background-radius:4;");
+                        badge.getStyleClass().add("badge-info");
                     }
                     HBox wrapper = new HBox(badge);
                     wrapper.setAlignment(Pos.CENTER_LEFT);
@@ -2035,7 +2507,7 @@ public class CoursePortalTabView {
                     String href = context.portalRepository().extractAssignmentDownloadLink(cell);
                     Button dlBtn = new Button("Download");
                     dlBtn.setCursor(javafx.scene.Cursor.HAND);
-                    dlBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
+                    dlBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill: -color-bg-main;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
                     
                     final String finalCourse = courseTitle;
                     final String finalAssign = assignmentTitle;
@@ -2056,10 +2528,19 @@ public class CoursePortalTabView {
                     if (!isRowClosed) {
                         String submitUrl = context.portalRepository().extractAssignmentSubmitLink(cell, "CoursePortalPendingAssignments.aspx");
                         if (!submitUrl.isEmpty()) {
-                            Button subBtn = new Button("Submit");
+                            String btnText = "Submit";
+                            Element aOrInput = cell.select("a, button, input[type=submit], input[type=button]").first();
+                            if (aOrInput != null) {
+                                String val = aOrInput.attr("value").trim();
+                                if (val.isEmpty()) val = aOrInput.text().trim();
+                                if (!val.isEmpty()) btnText = val;
+                            }
+                            Button subBtn = new Button(btnText);
                             subBtn.setCursor(javafx.scene.Cursor.HAND);
-                            subBtn.setStyle("-fx-background-color:#23A9BD;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
+                            subBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:bold;-fx-background-radius:4;-fx-padding:4 10;");
                             subBtn.setOnAction(e -> triggerAssignmentUpload(submitUrl, subBtn));
+                            uploadButtons.add(subBtn);
+                            applyOfflineStateIfOffline(subBtn, btnText);
 
                             HBox wrapper = new HBox(subBtn);
                             wrapper.setAlignment(Pos.CENTER_LEFT);
@@ -2105,14 +2586,14 @@ public class CoursePortalTabView {
     private double pendingColW(String h, int i, int total) {
         String l = h.toLowerCase();
         if (l.contains("#")) return 40;
-        if (l.contains("course")) return 180;
-        if (l.contains("title")) return 150;
+        if (l.contains("course")) return 240;
+        if (l.contains("title")) return 200;
         if (l.contains("start")) return 110;
         if (l.contains("deadline") || l.contains("due")) return 140;
-        if (l.contains("submission")) return 110;
-        if (l.contains("status")) return 80;
+        if (l.contains("submission")) return 140;
+        if (l.contains("status")) return 130;
         if (l.contains("download") || l.contains("dowload")) return 100;
-        if (l.contains("submit")) return 90;
+        if (l.contains("submit")) return 120;
         return 100;
     }
 
@@ -2130,6 +2611,35 @@ public class CoursePortalTabView {
         alert.setHeaderText(null);
         alert.setContentText(content);
         alert.showAndWait();
+    }
+
+    private void applyOfflineStateIfOffline(Button btn, String originalText) {
+        if (!context.isOnline()) {
+            btn.setDisable(true);
+            btn.setText("🔒 " + originalText);
+            btn.setTooltip(new javafx.scene.control.Tooltip("This feature is disabled in offline mode."));
+        }
+    }
+
+    private void onConnectivityChanged(boolean isOnline) {
+        Platform.runLater(() -> {
+            for (Button btn : uploadButtons) {
+                String originalText = btn.getText();
+                if (isOnline) {
+                    btn.setDisable(false);
+                    if (originalText.startsWith("🔒 ")) {
+                        btn.setText(originalText.substring(2));
+                    }
+                    btn.setTooltip(null);
+                } else {
+                    btn.setDisable(true);
+                    if (!originalText.startsWith("🔒 ")) {
+                        btn.setText("🔒 " + originalText);
+                    }
+                    btn.setTooltip(new javafx.scene.control.Tooltip("This feature is disabled in offline mode."));
+                }
+            }
+        });
     }
 
     public VBox getRoot() { return root; }

@@ -1,5 +1,6 @@
 package com.assignly.view;
 
+import com.assignly.service.PdfExportService;
 import com.assignly.util.AppContext;
 import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
@@ -17,11 +18,13 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.web.WebEngine;
 import javafx.scene.web.WebView;
+import javafx.stage.FileChooser;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,10 +35,12 @@ public class FeeTabView {
     private StackPane contentPane;
     private HBox tabBar;
     private String activeTab = "";
+    private Button exportBtn;
+    private List<FeeHistoryTable> latestHistoryTables = List.of();
 
     // Data structures
     private record ChallanInfo(String description, String postbackTarget, String postbackArgument) {}
-    private record FeeHistoryTable(String title, List<String> headers, List<List<String>> data) {}
+    public record FeeHistoryTable(String title, List<String> headers, List<List<String>> data) {}
 
     public FeeTabView(AppContext context) {
         this.context = context;
@@ -66,7 +71,13 @@ public class FeeTabView {
             else if ("fee_history".equals(activeTab)) loadFeeHistory(true);
         });
 
-        headerRow.getChildren().addAll(heading, spacer, refreshBtn);
+        exportBtn = new Button("📥 Export PDF");
+        exportBtn.getStyleClass().add("accent-button");
+        exportBtn.setDisable(true);
+        exportBtn.setOnAction(e -> exportFeeHistoryPdf());
+        HBox.setMargin(exportBtn, new Insets(0, 8, 0, 0));
+
+        headerRow.getChildren().addAll(heading, spacer, exportBtn, refreshBtn);
 
         tabBar = new HBox(4);
         tabBar.setPadding(new Insets(12, 28, 0, 28));
@@ -90,13 +101,14 @@ public class FeeTabView {
     }
 
     private String tabStyle(boolean on) {
-        return on ? "-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:600;-fx-background-radius:6;-fx-padding:6 12;"
-                  : "-fx-background-color: -color-bg-card;-fx-text-fill:#666;-fx-font-size:11px;-fx-font-weight:500;-fx-background-radius:6;-fx-padding:6 12;-fx-border-color:#d5d0ce;-fx-border-radius:6;-fx-border-width:1;";
+        return on ? "-fx-background-color: -color-accent;-fx-text-fill:white;-fx-font-size:11px;-fx-font-weight:600;-fx-background-radius:6;-fx-padding:6 12;"
+                  : "-fx-background-color: -color-bg-card;-fx-text-fill: -color-text-muted;-fx-font-size:11px;-fx-font-weight:500;-fx-background-radius:6;-fx-padding:6 12;-fx-border-color: -color-border;-fx-border-radius:6;-fx-border-width:1;";
     }
 
     private void loadTab(String tabKey) {
         if (activeTab.equals(tabKey)) return;
         activeTab = tabKey;
+        updateExportButtonState();
 
         for (var n : tabBar.getChildren()) {
             if (n instanceof Button b) {
@@ -120,6 +132,37 @@ public class FeeTabView {
             box.getChildren().addAll(sp, l);
             contentPane.getChildren().add(new StackPane(box));
         });
+    }
+
+    private void exportFeeHistoryPdf() {
+        if (latestHistoryTables == null || latestHistoryTables.isEmpty()) {
+            showErrorAlert("Export Failed", "No fee history data available to export.");
+            return;
+        }
+
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Save Fee History PDF");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF Files", "*.pdf"));
+        String reg = context.getSessionRegistration() == null ? "Fee_History" : "Fee_History_" + context.getSessionRegistration();
+        chooser.setInitialFileName(reg + ".pdf");
+        File file = chooser.showSaveDialog(context.stage());
+        if (file == null) {
+            return;
+        }
+
+        try {
+            String studentName = context.portalRepository().getCurrentStudentName();
+            String regNo = context.getSessionRegistration();
+            new PdfExportService().exportFeeHistory(studentName, regNo, latestHistoryTables, file);
+        } catch (Exception ex) {
+            showErrorAlert("Export Failed", ex.getMessage());
+        }
+    }
+
+    private void updateExportButtonState() {
+        if (exportBtn == null) return;
+        boolean enabled = "fee_history".equals(activeTab) && latestHistoryTables != null && !latestHistoryTables.isEmpty();
+        exportBtn.setDisable(!enabled);
     }
 
     private VBox buildErrorState(String title, String message) {
@@ -217,6 +260,7 @@ public class FeeTabView {
 
                 boolean finalOffline = isOffline;
                 Platform.runLater(() -> {
+                    updateExportButtonState();
                     contentPane.getChildren().clear();
                     VBox container = new VBox();
                     if (finalOffline) container.getChildren().add(buildOfflineBanner());
@@ -225,7 +269,12 @@ public class FeeTabView {
                     } else {
                         container.getChildren().add(buildChallansListView(challans));
                     }
-                    contentPane.getChildren().add(container);
+                    
+                    // RESIZING FIX: Wrap the master VBox container inside a responsive ScrollPane to support vertical and horizontal scrolling across the entire panel under small stage sizes
+                    ScrollPane sp = new ScrollPane(container);
+                    sp.setFitToWidth(true);
+                    sp.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
+                    contentPane.getChildren().add(sp);
                 });
             } catch (Exception e) {
                 e.printStackTrace();
@@ -278,7 +327,7 @@ public class FeeTabView {
             HBox.setHgrow(spacer, Priority.ALWAYS);
 
             Button downloadBtn = new Button("Download Challan");
-            downloadBtn.setStyle("-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:12px;-fx-font-weight:bold;-fx-background-radius:6;-fx-padding:8 16;");
+            downloadBtn.setStyle("-fx-background-color: -color-accent;-fx-text-fill:white;-fx-font-size:12px;-fx-font-weight:bold;-fx-background-radius:6;-fx-padding:8 16;");
             downloadBtn.setCursor(javafx.scene.Cursor.HAND);
             downloadBtn.setOnAction(e -> downloadChallan(challan.postbackTarget(), challan.postbackArgument(), downloadBtn));
 
@@ -286,12 +335,9 @@ public class FeeTabView {
             listContainer.getChildren().add(row);
         }
 
-        ScrollPane scrollPane = new ScrollPane(listContainer);
-        scrollPane.setFitToWidth(true);
-        scrollPane.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
-        VBox.setVgrow(scrollPane, Priority.ALWAYS);
-
-        content.getChildren().add(scrollPane);
+        // RESIZING FIX: Add listContainer directly to the parent content VBox since the master container is already wrapped inside a ScrollPane, avoiding double scrollbars
+        VBox.setVgrow(listContainer, Priority.ALWAYS);
+        content.getChildren().add(listContainer);
         return content;
     }
 
@@ -504,6 +550,8 @@ public class FeeTabView {
 
                 boolean finalOffline = isOffline;
                 Platform.runLater(() -> {
+                    latestHistoryTables = historyTables;
+                    updateExportButtonState();
                     contentPane.getChildren().clear();
                     VBox container = new VBox();
                     if (finalOffline) container.getChildren().add(buildOfflineBanner());
@@ -512,7 +560,12 @@ public class FeeTabView {
                     } else {
                         container.getChildren().add(buildMultiTableView(historyTables));
                     }
-                    contentPane.getChildren().add(container);
+                    
+                    // RESIZING FIX: Wrap the master VBox container inside a responsive ScrollPane to support vertical and horizontal scrolling across the entire panel under small stage sizes
+                    ScrollPane sp = new ScrollPane(container);
+                    sp.setFitToWidth(true);
+                    sp.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
+                    contentPane.getChildren().add(sp);
                 });
 
             } catch (Exception e) {
@@ -546,7 +599,7 @@ public class FeeTabView {
         return content;
     }
 
-    private ScrollPane buildMultiTableView(List<FeeHistoryTable> tables) {
+    private VBox buildMultiTableView(List<FeeHistoryTable> tables) {
         VBox content = new VBox(32); // Generous spacing between tables
         content.setPadding(new Insets(16, 28, 24, 28));
         content.setFillWidth(true);
@@ -555,7 +608,7 @@ public class FeeTabView {
             VBox section = new VBox(12);
             
             Label title = new Label(table.title());
-            title.setStyle("-fx-font-size:16px;-fx-font-weight:bold;-fx-text-fill:#004643;");
+            title.setStyle("-fx-font-size:16px;-fx-font-weight:bold;-fx-text-fill: -color-accent;");
             
             TableView<List<String>> tableView = new TableView<>();
             tableView.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
@@ -574,6 +627,17 @@ public class FeeTabView {
                     if (colIndex < row.size()) return new SimpleStringProperty(row.get(colIndex));
                     else return new SimpleStringProperty("");
                 });
+                
+                // RESIZING FIX: Configure safe preferred and minimum widths to prevent TableView columns from squishing to 0px under constrained sizing
+                String header = table.headers().get(i).toLowerCase();
+                if (header.contains("desc") || header.contains("particular") || header.contains("title")) {
+                    column.setPrefWidth(220);
+                    column.setMinWidth(160);
+                } else {
+                    column.setPrefWidth(100);
+                    column.setMinWidth(80);
+                }
+                
                 tableView.getColumns().add(column);
             }
 
@@ -584,10 +648,8 @@ public class FeeTabView {
             content.getChildren().add(section);
         }
 
-        ScrollPane scrollPane = new ScrollPane(content);
-        scrollPane.setFitToWidth(true);
-        scrollPane.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
-        return scrollPane;
+        // RESIZING FIX: Return the content VBox container directly without the inner ScrollPane since the outer container is already scrollable
+        return content;
     }
 
     private void showErrorAlert(String title, String message) {

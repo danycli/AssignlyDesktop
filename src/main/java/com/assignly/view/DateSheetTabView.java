@@ -79,13 +79,13 @@ public class DateSheetTabView {
     private void buildLoading() {
         contentPane.getChildren().clear();
         StackPane loading = new StackPane();
-        loading.setStyle("-fx-background-color: #F0EDEC;");
+        loading.setStyle("-fx-background-color: -color-bg-main;");
         VBox box = new VBox(10);
         box.setAlignment(Pos.CENTER);
         ProgressIndicator spinner = new ProgressIndicator();
         spinner.setMaxSize(28, 28);
         Label msg = new Label("Loading date sheet...");
-        msg.setStyle("-fx-text-fill: #888888; -fx-font-size: 13px;");
+        msg.setStyle("-fx-text-fill: -color-text-muted; -fx-font-size: 13px;");
         box.getChildren().addAll(spinner, msg);
         loading.getChildren().add(box);
         contentPane.getChildren().add(loading);
@@ -255,7 +255,7 @@ public class DateSheetTabView {
 
         if (entries.isEmpty()) {
             Label noData = new Label("No date sheet data available at this time.");
-            noData.setStyle("-fx-text-fill: #888888; -fx-font-size: 13px; -fx-padding: 20 0;");
+            noData.setStyle("-fx-text-fill: -color-text-muted; -fx-font-size: 13px; -fx-padding: 20 0;");
             noData.setWrapText(true);
             content.getChildren().add(noData);
         } else {
@@ -265,22 +265,22 @@ public class DateSheetTabView {
                 card.setPadding(new Insets(14, 18, 14, 18));
 
                 Label courseLabel = new Label(entry.course().isBlank() ? "—" : entry.course());
-                courseLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: 700; -fx-text-fill: #1a1a1a;");
+                courseLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: 700; -fx-text-fill: -color-text-main;");
 
                 HBox details = new HBox(16);
                 if (!entry.date().isBlank()) {
                     Label d = new Label("📅  " + entry.date());
-                    d.setStyle("-fx-font-size: 12px; -fx-text-fill: #004643; -fx-font-weight: 500;");
+                    d.setStyle("-fx-font-size: 12px; -fx-text-fill: -color-accent; -fx-font-weight: 500;");
                     details.getChildren().add(d);
                 }
                 if (!entry.time().isBlank()) {
                     Label t = new Label("🕐  " + entry.time());
-                    t.setStyle("-fx-font-size: 12px; -fx-text-fill: #666666;");
+                    t.setStyle("-fx-font-size: 12px; -fx-text-fill: -color-text-muted;");
                     details.getChildren().add(t);
                 }
                 if (!entry.venue().isBlank()) {
                     Label v = new Label("📍  " + entry.venue());
-                    v.setStyle("-fx-font-size: 12px; -fx-text-fill: #666666;");
+                    v.setStyle("-fx-font-size: 12px; -fx-text-fill: -color-text-muted;");
                     details.getChildren().add(v);
                 }
 
@@ -290,9 +290,13 @@ public class DateSheetTabView {
             }
         }
 
+        // RESIZING FIX: Set a safe minimum width on the content container so cards and labels maintain proper grid alignments without visual compression
+        content.setMinWidth(600);
+
         ScrollPane scroll = new ScrollPane(content);
         scroll.setFitToWidth(true);
-        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        // RESIZING FIX: Allow horizontal scrollbars when the window is shrunk, making sure all dates, course titles, and venues remain accessible
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         scroll.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
         contentPane.getChildren().add(scroll);
     }

@@ -39,6 +39,16 @@ public class CoursesTabView {
         loadTab("summary");
     }
 
+    public CoursesTabView(AppContext context, String initialTab, String initialCourseQuery) {
+        this.context = context;
+        buildShell();
+        String tab = initialTab == null || initialTab.isBlank() ? "summary" : initialTab;
+        if (!tab.equals("summary") && !tab.equals("proceedings") && !tab.equals("marks")) {
+            tab = "summary";
+        }
+        loadTab(tab, initialCourseQuery, false);
+    }
+
     private void buildShell() {
         root.setFillWidth(true);
         
@@ -71,15 +81,9 @@ public class CoursesTabView {
     private Button tabBtn(String label, String id) {
         Button b = new Button(label);
         b.setUserData(id);
-        b.setCursor(javafx.scene.Cursor.HAND);
-        b.setStyle(tabStyle(false));
+        b.getStyleClass().add("custom-tab");
         b.setOnAction(e -> loadTab(id));
         return b;
-    }
-
-    private String tabStyle(boolean on) {
-        return on ? "-fx-background-color:#004643;-fx-text-fill:white;-fx-font-size:12px;-fx-font-weight:600;-fx-background-radius:6;-fx-padding:6 14;"
-                  : "-fx-background-color: -color-bg-card;-fx-text-fill:#666;-fx-font-size:12px;-fx-font-weight:500;-fx-background-radius:6;-fx-padding:6 14;-fx-border-color:#d5d0ce;-fx-border-radius:6;-fx-border-width:1;";
     }
 
     private void loadTab(String id) {
@@ -97,7 +101,11 @@ public class CoursesTabView {
 
         for (var n : tabBar.getChildren()) {
             if (n instanceof Button b) {
-                b.setStyle(tabStyle(tabKey.replace("_postback", "").equals(b.getUserData())));
+                boolean isActive = tabKey.replace("_postback", "").equals(b.getUserData());
+                b.getStyleClass().remove("custom-tab-active");
+                if (isActive) {
+                    b.getStyleClass().add("custom-tab-active");
+                }
             }
         }
 
@@ -163,7 +171,7 @@ public class CoursesTabView {
             contentPane.getChildren().clear();
             VBox box = new VBox(10); box.setAlignment(Pos.CENTER);
             ProgressIndicator sp = new ProgressIndicator(); sp.setMaxSize(28,28);
-            Label l = new Label(msg); l.setStyle("-fx-text-fill:#888;-fx-font-size:12px;");
+            Label l = new Label(msg); l.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:12px;");
             box.getChildren().addAll(sp, l);
             setContentAnimated(new StackPane(box));
         });
@@ -217,7 +225,14 @@ public class CoursesTabView {
             if (card != null) content.getChildren().add(card);
         }
         if (content.getChildren().isEmpty()) showError("No course data found.");
-        ScrollPane sp = new ScrollPane(content); sp.setFitToWidth(true); sp.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        double maxW = 0;
+        for (javafx.scene.Node child : content.getChildren()) {
+            if (child instanceof javafx.scene.layout.Region) {
+                maxW = Math.max(maxW, ((javafx.scene.layout.Region) child).getMinWidth());
+            }
+        }
+        if (maxW > 0) content.setMinWidth(maxW + 56);
+        ScrollPane sp = new ScrollPane(content); sp.setFitToWidth(true); sp.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         return sp;
     }
 
@@ -243,6 +258,8 @@ public class CoursesTabView {
             String lowerText = text.trim().toLowerCase();
             for (String[] c : courses) {
                 if (c[1].toLowerCase().contains(lowerText) || lowerText.contains(c[1].toLowerCase())) {
+                    lastSelectedCourseTitle = c[1];
+                    hasExplicitlySelectedCourse = true;
                     loadProceedings(c[0], forceRefresh, currentRequestId);
                     return;
                 }
@@ -306,7 +323,7 @@ public class CoursesTabView {
         // Course selector
         if (!courses.isEmpty()) {
             HBox selectorRow = new HBox(10); selectorRow.setAlignment(Pos.CENTER_LEFT);
-            Label lbl = new Label("Select Course:"); lbl.setStyle("-fx-font-weight:600;-fx-text-fill:#004643;-fx-font-size:13px;");
+            Label lbl = new Label("Select Course:"); lbl.setStyle("-fx-font-weight:600;-fx-text-fill: -color-accent;-fx-font-size:13px;");
             ComboBox<String> combo = new ComboBox<>();
             Map<String, String> valueMap = new LinkedHashMap<>();
             for (String[] c : courses) { combo.getItems().add(c[1]); valueMap.put(c[1], c[0]); }
@@ -364,7 +381,14 @@ public class CoursesTabView {
             }
         }
 
-        ScrollPane sp = new ScrollPane(content); sp.setFitToWidth(true); sp.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        double maxW = 0;
+        for (javafx.scene.Node child : content.getChildren()) {
+            if (child instanceof javafx.scene.layout.Region) {
+                maxW = Math.max(maxW, ((javafx.scene.layout.Region) child).getMinWidth());
+            }
+        }
+        if (maxW > 0) content.setMinWidth(maxW + 56);
+        ScrollPane sp = new ScrollPane(content); sp.setFitToWidth(true); sp.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         return sp;
     }
 
@@ -396,10 +420,10 @@ public class CoursesTabView {
         VBox card = new VBox(6); card.getStyleClass().add("card"); card.setPadding(new Insets(14, 18, 14, 18));
         for (var e : info.entrySet()) {
             HBox row = new HBox(8);
-            Label k = new Label(e.getKey()); k.setStyle("-fx-font-size:12px;-fx-text-fill:#888;-fx-font-weight:500;"); k.setMinWidth(110);
-            Label v = new Label(e.getValue()); v.setStyle("-fx-font-size:13px;-fx-text-fill:#1a1a1a;-fx-font-weight:600;");
+            Label k = new Label(e.getKey()); k.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-muted;-fx-font-weight:500;"); k.setMinWidth(110);
+            Label v = new Label(e.getValue()); v.setStyle("-fx-font-size:13px;-fx-text-fill: -color-text-main;-fx-font-weight:600;");
             // Color percentage
-            if (e.getKey().toLowerCase().contains("percentage")) v.setStyle(v.getStyle() + "-fx-text-fill:#004643;");
+            if (e.getKey().toLowerCase().contains("percentage")) v.setStyle(v.getStyle() + "-fx-text-fill: -color-accent;");
             row.getChildren().addAll(k, v);
             card.getChildren().add(row);
         }
@@ -409,9 +433,9 @@ public class CoursesTabView {
         try {
             double pct = Double.parseDouble(pctStr.replaceAll("[^0-9.]", ""));
             StackPane barBg = new StackPane();
-            barBg.setStyle("-fx-background-color:#e0dbd9;-fx-background-radius:4;"); barBg.setMinHeight(10); barBg.setMaxHeight(10);
+            barBg.setStyle("-fx-background-color: -color-border;-fx-background-radius:4;"); barBg.setMinHeight(10); barBg.setMaxHeight(10);
             Region barFill = new Region(); barFill.setMinHeight(10); barFill.setMaxHeight(10);
-            String col = pct >= 80 ? "#004643" : pct >= 60 ? "#e6930a" : "#d94452";
+            String col = pct >= 80 ? "-color-accent" : pct >= 60 ? "#e6930a" : "#d94452";
             barFill.setStyle("-fx-background-color:" + col + ";-fx-background-radius:4;");
             barFill.maxWidthProperty().bind(barBg.widthProperty().multiply(pct / 100.0));
             StackPane.setAlignment(barFill, Pos.CENTER_LEFT);
@@ -450,6 +474,8 @@ public class CoursesTabView {
             String lowerText = text.trim().toLowerCase();
             for (String[] c : courses) {
                 if (c[1].toLowerCase().contains(lowerText) || lowerText.contains(c[1].toLowerCase())) {
+                    lastSelectedCourseTitle = c[1];
+                    hasExplicitlySelectedCourse = true;
                     loadMarks(c[0], forceRefresh, currentRequestId);
                     return;
                 }
@@ -524,7 +550,7 @@ public class CoursesTabView {
         }
         if (!courses.isEmpty()) {
             HBox selectorRow = new HBox(10); selectorRow.setAlignment(Pos.CENTER_LEFT);
-            Label lbl = new Label("Select Course:"); lbl.setStyle("-fx-font-weight:600;-fx-text-fill:#004643;-fx-font-size:13px;");
+            Label lbl = new Label("Select Course:"); lbl.setStyle("-fx-font-weight:600;-fx-text-fill: -color-accent;-fx-font-size:13px;");
             ComboBox<String> combo = new ComboBox<>();
             Map<String,String> vm = new LinkedHashMap<>();
             for (String[] c : courses) { combo.getItems().add(c[1]); vm.put(c[1], c[0]); }
@@ -573,7 +599,14 @@ public class CoursesTabView {
                 if (card != null) content.getChildren().add(card);
             }
         }
-        ScrollPane sp = new ScrollPane(content); sp.setFitToWidth(true); sp.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        double maxW = 0;
+        for (javafx.scene.Node child : content.getChildren()) {
+            if (child instanceof javafx.scene.layout.Region) {
+                maxW = Math.max(maxW, ((javafx.scene.layout.Region) child).getMinWidth());
+            }
+        }
+        if (maxW > 0) content.setMinWidth(maxW + 56);
+        ScrollPane sp = new ScrollPane(content); sp.setFitToWidth(true); sp.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         return sp;
     }
 
@@ -609,18 +642,24 @@ public class CoursesTabView {
         VBox card = new VBox(0);
         card.setStyle("-fx-background-color: -color-bg-card;-fx-border-color:#e0e0e0;-fx-border-width:1;");
 
+        double totalWidth = 0;
+        for (int i = 0; i < headers.size(); i++) {
+            totalWidth += colW(headers.get(i), i, headers.size());
+        }
+        card.setMinWidth(totalWidth);
+
         if (tableTitle != null && !tableTitle.isEmpty()) {
             Label lblTitle = new Label(tableTitle);
-            lblTitle.setStyle("-fx-font-size:16px;-fx-font-weight:700;-fx-text-fill:#333333;-fx-padding:14 18 10 18;");
+            lblTitle.setStyle("-fx-font-size:16px;-fx-font-weight:700;-fx-text-fill: -color-text-main;-fx-padding:14 18 10 18;");
             card.getChildren().add(lblTitle);
         }
 
         HBox hdrBox = new HBox(0);
-        hdrBox.setStyle("-fx-background-color:#f9f9f9;-fx-border-color:#eeeeee;-fx-border-width:0 0 1 0;-fx-padding:10 0;");
+        hdrBox.setStyle("-fx-background-color: -color-bg-card;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;-fx-padding:10 0;");
         for (int i = 0; i < headers.size(); i++) {
             String hText = headers.get(i).equals("S.No") ? "Serial" : headers.get(i);
             Label h = new Label(hText);
-            h.setStyle("-fx-text-fill:#666666;-fx-font-size:12px;-fx-font-weight:700;-fx-padding:0 12;");
+            h.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:12px;-fx-font-weight:700;-fx-padding:0 12;");
             double w = colW(headers.get(i), i, headers.size());
             h.setMinWidth(w); h.setMaxWidth(w);
             hdrBox.getChildren().add(h);
@@ -631,8 +670,8 @@ public class CoursesTabView {
             Elements cells = rows.get(r).select("td");
             if (cells.isEmpty()) continue;
             HBox dataRow = new HBox(0);
-            String bg = (r % 2 == 0) ? "#f9f9f9" : "white";
-            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:10 0;-fx-border-color:#eeeeee;-fx-border-width:0 0 1 0;");
+            String bg = (r % 2 == 0) ? "-color-bg-card" : "-color-bg-main";
+            dataRow.setStyle("-fx-background-color:" + bg + ";-fx-padding:10 0;-fx-border-color: -color-border;-fx-border-width:0 0 1 0;");
             
             for (int c = 0; c < cells.size(); c++) {
                 if (c >= headers.size()) break;
@@ -662,14 +701,14 @@ public class CoursesTabView {
 
                 Label cl = new Label(txt);
                 cl.setWrapText(true);
-                String style = "-fx-font-size:12px;-fx-padding:0 12;-fx-text-fill:#444444;";
+                String style = "-fx-font-size:12px;-fx-padding:0 12;-fx-text-fill: -color-text-main;";
                 String col = headers.get(c).toLowerCase();
 
                 boolean isClickableCourse = isSummary && c == 1 && c < headers.size() && headers.get(c).toLowerCase().contains("title") && !txt.isEmpty();
                 Node cellNode;
 
                 if (col.contains("status")) {
-                    style += "P".equals(txt) ? "-fx-text-fill:#339933;-fx-font-weight:700;" : "A".equals(txt) ? "-fx-text-fill:#e53e3e;-fx-font-weight:700;" : "-fx-text-fill:#444444;";
+                    style += "P".equals(txt) ? "-fx-text-fill:#339933;-fx-font-weight:700;" : "A".equals(txt) ? "-fx-text-fill:#e53e3e;-fx-font-weight:700;" : "-fx-text-fill: -color-text-main;";
                     cl.setStyle(style);
                     cellNode = cl;
                 } else if (col.contains("%") || col.contains("thy") || col.contains("lab")) {
@@ -677,7 +716,7 @@ public class CoursesTabView {
                         // Render inline progress bar only for summary tab
                         double pct = Double.parseDouble(txt.replace("%",""));
                         StackPane barBg = new StackPane();
-                        barBg.setStyle("-fx-background-color:#e0dbd9;-fx-background-radius:4;"); barBg.setMinHeight(10); barBg.setMaxHeight(10);
+                        barBg.setStyle("-fx-background-color: -color-border;-fx-background-radius:4;"); barBg.setMinHeight(10); barBg.setMaxHeight(10);
                         Region barFill = new Region(); barFill.setMinHeight(10); barFill.setMaxHeight(10);
                         String color = pct >= 80 ? "#38a169" : pct >= 60 ? "#d69e2e" : "#e53e3e";
                         barFill.setStyle("-fx-background-color:" + color + ";-fx-background-radius:4;");
@@ -737,11 +776,11 @@ public class CoursesTabView {
     }
 
     private String colorPct(String t) {
-        if (t.equalsIgnoreCase("N/A") || t.equalsIgnoreCase("NA")) return "-fx-text-fill:#aaa;";
-        try { double v = Double.parseDouble(t.replaceAll("[^0-9.]","")); if (v>=80) return "-fx-text-fill:#004643;-fx-font-weight:700;"; if (v>=60) return "-fx-text-fill:#e6930a;-fx-font-weight:600;"; return "-fx-text-fill:#d94452;-fx-font-weight:700;"; } catch (Exception e) { return "-fx-text-fill:#1a1a1a;"; }
+        if (t.equalsIgnoreCase("N/A") || t.equalsIgnoreCase("NA")) return "-fx-text-fill: -color-text-muted;";
+        try { double v = Double.parseDouble(t.replaceAll("[^0-9.]","")); if (v>=80) return "-fx-text-fill: -color-accent;-fx-font-weight:700;"; if (v>=60) return "-fx-text-fill:#e6930a;-fx-font-weight:600;"; return "-fx-text-fill:#d94452;-fx-font-weight:700;"; } catch (Exception e) { return "-fx-text-fill: -color-text-main;"; }
     }
 
-    private void showError(String msg) { contentPane.getChildren().clear(); Label l = new Label(msg); l.setStyle("-fx-text-fill:#888;-fx-font-size:13px;-fx-padding:30;"); l.setWrapText(true); contentPane.getChildren().add(l); }
+    private void showError(String msg) { contentPane.getChildren().clear(); Label l = new Label(msg); l.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:13px;-fx-padding:30;"); l.setWrapText(true); contentPane.getChildren().add(l); }
 
     private HBox buildOfflineBanner() {
         HBox banner = new HBox(8);

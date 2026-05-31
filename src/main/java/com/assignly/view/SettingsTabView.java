@@ -14,10 +14,15 @@ public class SettingsTabView {
     private final BorderPane root = new BorderPane();
     private final AppContext context;
     private StackPane contentArea;
+    private Button syncBtn;
+    private Button saveProfileBtn;
+    private Button changePassBtn;
+    private final java.util.function.Consumer<Boolean> connectivityListener = this::onConnectivityChanged;
 
     public SettingsTabView(AppContext context) {
         this.context = context;
         buildUI();
+        context.addConnectivityListener(connectivityListener);
     }
 
     private void buildUI() {
@@ -58,18 +63,17 @@ public class SettingsTabView {
 
     private Button createSubTabBtn(String text) {
         Button btn = new Button(text);
-        btn.setStyle("-fx-background-color:transparent;-fx-text-fill: -color-text-muted;-fx-font-size:14px;-fx-font-weight:bold;-fx-alignment:CENTER-LEFT;-fx-padding:10 16;");
-        btn.setMaxWidth(Double.MAX_VALUE);
+        btn.getStyleClass().add("settings-subtab-button");
         return btn;
     }
 
     private void setActive(VBox sidebar, Button activeBtn) {
         for (javafx.scene.Node n : sidebar.getChildren()) {
             if (n instanceof Button b) {
-                b.setStyle("-fx-background-color:transparent;-fx-text-fill: -color-text-muted;-fx-font-size:14px;-fx-font-weight:bold;-fx-alignment:CENTER-LEFT;-fx-padding:10 16;");
+                b.getStyleClass().remove("settings-subtab-button-active");
             }
         }
-        activeBtn.setStyle("-fx-background-color:#eff6ff;-fx-text-fill:#2563eb;-fx-font-size:14px;-fx-font-weight:bold;-fx-alignment:CENTER-LEFT;-fx-padding:10 16;-fx-background-radius:6;");
+        activeBtn.getStyleClass().add("settings-subtab-button-active");
     }
 
     // --- GENERAL TAB ---
@@ -102,19 +106,30 @@ public class SettingsTabView {
         HBox actionsRow = new HBox(16);
         
         // Force Sync Button
-        Button syncBtn = new Button("🔄 Force Sync Data");
-        syncBtn.setStyle("-fx-background-color:#E8F0FE;-fx-text-fill:#1967D2;-fx-font-weight:bold;-fx-padding:10 20;-fx-background-radius:6;");
+        syncBtn = new Button("🔄 Force Sync Data");
+        syncBtn.getStyleClass().add("btn-secondary");
+        applyOfflineStateIfOffline(syncBtn, "Force Sync Data", "🔄 ");
         syncBtn.setOnAction(e -> {
+            if (!context.isOnline()) {
+                context.showToastError("Cannot force sync in offline mode.");
+                return;
+            }
             context.dataCacheService().clearAllCaches();
             syncBtn.setText("✅ Synced!");
             syncBtn.setDisable(true);
+            context.showToastSuccess("Cache cleared. Data will refresh on next load.");
         });
 
         // Quick Logout Button
         Button logoutBtn = new Button("🚪 Secure Logout");
-        logoutBtn.setStyle("-fx-background-color:#FEF2F2;-fx-text-fill:#DC2626;-fx-font-weight:bold;-fx-padding:10 20;-fx-background-radius:6;");
+        logoutBtn.getStyleClass().add("btn-danger");
         logoutBtn.setOnAction(e -> {
             context.credentialManager().clearRememberMe();
+            try {
+                UserPreferences p = context.preferencesService().loadPreferences();
+                p.setAutoLogin(false);
+                context.preferencesService().savePreferences(p);
+            } catch (Exception ignored) {}
             context.clearSessionCredentials();
             context.showLoginScreen();
         });
@@ -148,8 +163,26 @@ public class SettingsTabView {
         });
 
         themeRow.getChildren().addAll(themeLbl, darkModeToggle);
+
+        HBox notifRow = new HBox(12);
+        notifRow.setAlignment(Pos.CENTER_LEFT);
         
-        card.getChildren().addAll(desc, themeRow);
+        Label notifLbl = new Label("Enable Notifications");
+        notifLbl.setStyle("-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
+
+        CheckBox notifToggle = new CheckBox();
+        notifToggle.setStyle("-fx-cursor:hand;");
+        notifToggle.setSelected(prefs.isNotificationsEnabled());
+
+        notifToggle.selectedProperty().addListener((obs, oldVal, newVal) -> {
+            prefs.setNotificationsEnabled(newVal);
+            context.preferencesService().savePreferences(prefs);
+            context.showToastSuccess(newVal ? "Notifications enabled" : "Notifications disabled");
+        });
+
+        notifRow.getChildren().addAll(notifLbl, notifToggle);
+
+        card.getChildren().addAll(desc, themeRow, notifRow);
         return card;
     }
 
@@ -179,24 +212,43 @@ public class SettingsTabView {
 
         Label regInfo = new Label(context.getSessionRegistration() != null
                 ? "Signed in as: " + context.getSessionRegistration() : "Not signed in");
-        regInfo.setStyle("-fx-font-size:13px;-fx-font-weight:bold;-fx-text-fill:#059669;");
+        regInfo.getStyleClass().add("status-success");
+        regInfo.setStyle("-fx-font-size:13px;");
 
         CheckBox autoLogin = new CheckBox("Auto-login on app startup");
         autoLogin.setStyle("-fx-font-size:13px;-fx-text-fill: -color-text-main;");
         autoLogin.setSelected(prefs.isAutoLogin());
         autoLogin.setOnAction(e -> {
             UserPreferences p = context.preferencesService().loadPreferences();
+            if (autoLogin.isSelected() && !context.credentialManager().hasRememberedCredentials()) {
+                context.showToastError("Auto-login requires saved credentials. Please log in with 'Remember Me' enabled.");
+                autoLogin.setSelected(false);
+                return;
+            }
             p.setAutoLogin(autoLogin.isSelected());
             context.preferencesService().savePreferences(p);
+            context.showToastSuccess("Auto-login preference saved.");
         });
 
         Button clearBtn = new Button("Wipe Saved Credentials");
-        clearBtn.setStyle("-fx-background-color:transparent;-fx-border-color:#ef4444;-fx-border-radius:4;-fx-text-fill:#ef4444;-fx-padding:6 12;");
+        clearBtn.getStyleClass().add("btn-danger-outline");
         clearBtn.setMaxWidth(Double.MAX_VALUE);
         clearBtn.setOnAction(e -> {
             context.credentialManager().clearAllCredentials();
+            
+            // Also update preferences
+            try {
+                UserPreferences p = context.preferencesService().loadPreferences();
+                p.setAutoLogin(false);
+                context.preferencesService().savePreferences(p);
+            } catch (Exception ignored) {}
+            
+            // Update UI components
+            autoLogin.setSelected(false);
+            
             clearBtn.setText("Credentials Wiped");
             clearBtn.setDisable(true);
+            context.showToastSuccess("Saved credentials wiped from database.");
         });
 
         card.getChildren().addAll(regInfo, autoLogin, clearBtn);
@@ -211,12 +263,13 @@ public class SettingsTabView {
         cacheDesc.setWrapText(true);
 
         Button clearCache = new Button("Clear Local Cache");
-        clearCache.setStyle("-fx-background-color:#f1f5f9;-fx-text-fill: -color-text-muted;-fx-font-weight:bold;-fx-padding:8 16;-fx-background-radius:4;");
+        clearCache.getStyleClass().add("btn-muted");
         clearCache.setMaxWidth(Double.MAX_VALUE);
         clearCache.setOnAction(e -> {
             context.dataCacheService().clearAllCaches();
             clearCache.setText("Cache Cleared Successfully");
             clearCache.setDisable(true);
+            context.showToastSuccess("Local cache cleared.");
         });
         
         card.getChildren().addAll(cacheDesc, clearCache);
@@ -251,19 +304,20 @@ public class SettingsTabView {
         TextField emailField = new TextField();
         emailField.setPromptText("Email Address");
 
-        Button saveBtn = new Button("Save Profile");
-        saveBtn.setStyle("-fx-background-color:#2563eb;-fx-text-fill:white;-fx-font-weight:bold;-fx-padding:10 20;-fx-background-radius:6;");
-        saveBtn.setMaxWidth(Double.MAX_VALUE);
-        saveBtn.setDisable(true);
+        saveProfileBtn = new Button("Save Profile");
+        saveProfileBtn.getStyleClass().add("btn-primary");
+        saveProfileBtn.setMaxWidth(Double.MAX_VALUE);
+        saveProfileBtn.setDisable(true);
+        applyOfflineStateIfOffline(saveProfileBtn, "Save Profile", "");
 
         Label statusLbl = new Label("");
         statusLbl.setWrapText(true);
-        statusLbl.setStyle("-fx-text-fill:#059669;");
+        statusLbl.getStyleClass().add("status-success");
 
         content.getChildren().addAll(title, info, 
             new Label("Cell Number:"), cellBox, 
             new Label("Email Address:"), emailField, 
-            new Region(), saveBtn, statusLbl);
+            new Region(), saveProfileBtn, statusLbl);
 
         ScrollPane sp = new ScrollPane(content);
         sp.setFitToWidth(true);
@@ -280,23 +334,31 @@ public class SettingsTabView {
                     numberField.setText(prof.cellNumber());
                     emailField.setText(prof.email());
                     info.setText("Update your contact details below:");
-                    saveBtn.setDisable(false);
+                    saveProfileBtn.setDisable(!context.isOnline());
                 } else {
                     info.setText("Failed to load profile data.");
                 }
             });
         }).start();
 
-        saveBtn.setOnAction(e -> {
-            saveBtn.setText("Saving...");
-            saveBtn.setDisable(true);
+        saveProfileBtn.setOnAction(e -> {
+            if (!context.isOnline()) {
+                setStatusError(statusLbl, "Cannot save profile in offline mode.");
+                return;
+            }
+            saveProfileBtn.setText("Saving...");
+            saveProfileBtn.setDisable(true);
             new Thread(() -> {
                 String msg = context.portalRepository().updateProfile(networkField.getText(), numberField.getText(), emailField.getText());
                 context.fetchAndCacheHtml("AddCellEmailInfo.aspx");
                 Platform.runLater(() -> {
-                    statusLbl.setText(msg);
-                    saveBtn.setText("Save Profile");
-                    saveBtn.setDisable(false);
+                    if (msg.toLowerCase().contains("success") || msg.toLowerCase().contains("updated") || msg.toLowerCase().contains("saved")) {
+                        setStatusSuccess(statusLbl, msg);
+                    } else {
+                        setStatusError(statusLbl, msg);
+                    }
+                    saveProfileBtn.setText("Save Profile");
+                    saveProfileBtn.setDisable(!context.isOnline());
                 });
             }).start();
         });
@@ -321,19 +383,20 @@ public class SettingsTabView {
         PasswordField confPass = new PasswordField();
         confPass.setPromptText("Confirm New Password");
 
-        Button saveBtn = new Button("Change Password");
-        saveBtn.setStyle("-fx-background-color:#2563eb;-fx-text-fill:white;-fx-font-weight:bold;-fx-padding:10 20;-fx-background-radius:6;");
-        saveBtn.setMaxWidth(Double.MAX_VALUE);
+        changePassBtn = new Button("Change Password");
+        changePassBtn.getStyleClass().add("btn-primary");
+        changePassBtn.setMaxWidth(Double.MAX_VALUE);
+        applyOfflineStateIfOffline(changePassBtn, "Change Password", "");
 
         Label statusLbl = new Label("");
         statusLbl.setWrapText(true);
-        statusLbl.setStyle("-fx-text-fill:#059669;");
+        statusLbl.getStyleClass().add("status-success");
 
         content.getChildren().addAll(title, rules, 
             new Label("Current Password:"), oldPass, 
             new Label("New Password:"), newPass, 
             new Label("Confirm Password:"), confPass, 
-            new Region(), saveBtn, statusLbl);
+            new Region(), changePassBtn, statusLbl);
 
         ScrollPane sp = new ScrollPane(content);
         sp.setFitToWidth(true);
@@ -347,20 +410,22 @@ public class SettingsTabView {
             Platform.runLater(() -> rules.setText(policy));
         }).start();
 
-        saveBtn.setOnAction(e -> {
-            if (!newPass.getText().equals(confPass.getText())) {
-                statusLbl.setText("New passwords do not match.");
-                statusLbl.setStyle("-fx-text-fill:#dc2626;");
+        changePassBtn.setOnAction(e -> {
+            if (!context.isOnline()) {
+                setStatusError(statusLbl, "Cannot change password in offline mode.");
                 return;
             }
-            saveBtn.setText("Updating...");
-            saveBtn.setDisable(true);
+            if (!newPass.getText().equals(confPass.getText())) {
+                setStatusError(statusLbl, "New passwords do not match.");
+                return;
+            }
+            changePassBtn.setText("Updating...");
+            changePassBtn.setDisable(true);
             new Thread(() -> {
                 String msg = context.portalRepository().changePassword(oldPass.getText(), newPass.getText(), confPass.getText());
                 Platform.runLater(() -> {
-                    statusLbl.setText(msg);
                     if (msg.toLowerCase().contains("success") || msg.toLowerCase().contains("changed") || msg.toLowerCase().contains("completed") || msg.toLowerCase().contains("successfully")) {
-                        statusLbl.setStyle("-fx-text-fill:#059669;");
+                        setStatusSuccess(statusLbl, msg);
                         // Force a logout due to credentials change
                         context.credentialManager().clearRememberMe();
                         context.clearSessionCredentials();
@@ -373,9 +438,9 @@ public class SettingsTabView {
                         
                         context.showLoginScreen();
                     } else {
-                        statusLbl.setStyle("-fx-text-fill:#dc2626;");
-                        saveBtn.setText("Change Password");
-                        saveBtn.setDisable(false);
+                        setStatusError(statusLbl, msg);
+                        changePassBtn.setText("Change Password");
+                        changePassBtn.setDisable(!context.isOnline());
                     }
                     oldPass.clear(); newPass.clear(); confPass.clear();
                 });
@@ -426,6 +491,59 @@ public class SettingsTabView {
                 }
             });
         }).start();
+    }
+
+    private void applyOfflineStateIfOffline(Button btn, String originalText, String prefix) {
+        if (!context.isOnline()) {
+            btn.setDisable(true);
+            String cleanText = originalText;
+            if (cleanText.startsWith("🔄 ")) {
+                cleanText = cleanText.substring(2);
+            }
+            btn.setText("🔒 " + cleanText);
+            btn.setTooltip(new Tooltip("This feature is disabled in offline mode."));
+        }
+    }
+
+    private void onConnectivityChanged(boolean isOnline) {
+        Platform.runLater(() -> {
+            updateButtonState(syncBtn, "Force Sync Data", isOnline, "🔄 ");
+            updateButtonState(saveProfileBtn, "Save Profile", isOnline, "");
+            updateButtonState(changePassBtn, "Change Password", isOnline, "");
+        });
+    }
+
+    private void updateButtonState(Button btn, String originalText, boolean isOnline, String prefix) {
+        if (btn == null) return;
+        if (isOnline) {
+            btn.setDisable(false);
+            if (btn.getText().startsWith("🔒 ")) {
+                btn.setText(prefix + originalText);
+            }
+            btn.setTooltip(null);
+        } else {
+            btn.setDisable(true);
+            String cleanText = btn.getText();
+            if (cleanText.startsWith("🔄 ")) {
+                cleanText = cleanText.substring(2);
+            }
+            if (!cleanText.startsWith("🔒 ")) {
+                btn.setText("🔒 " + cleanText);
+            }
+            btn.setTooltip(new Tooltip("This feature is disabled in offline mode."));
+        }
+    }
+
+    private void setStatusSuccess(Label lbl, String text) {
+        lbl.setText(text);
+        lbl.getStyleClass().removeAll("status-error", "status-success");
+        lbl.getStyleClass().add("status-success");
+    }
+
+    private void setStatusError(Label lbl, String text) {
+        lbl.setText(text);
+        lbl.getStyleClass().removeAll("status-error", "status-success");
+        lbl.getStyleClass().add("status-error");
     }
 
     public BorderPane getRoot() { return root; }

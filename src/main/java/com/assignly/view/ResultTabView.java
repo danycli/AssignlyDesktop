@@ -1,5 +1,6 @@
 package com.assignly.view;
 
+import com.assignly.service.PdfExportService;
 import com.assignly.util.AppContext;
 import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
@@ -9,11 +10,13 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
+import javafx.stage.FileChooser;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,7 +25,8 @@ public class ResultTabView {
     private final VBox root = new VBox();
     private final AppContext context;
 
-    private record SemesterResultTable(String title, List<String> headers, List<List<String>> data) {}
+    public record SemesterResultTable(String title, List<String> headers, List<List<String>> data) {}
+
 
     public ResultTabView(AppContext context) {
         this.context = context;
@@ -34,13 +38,13 @@ public class ResultTabView {
 
     private void buildLoading() {
         StackPane loading = new StackPane();
-        loading.setStyle("-fx-background-color: #F0EDEC;");
+        loading.setStyle("-fx-background-color: -color-bg-main;");
         VBox box = new VBox(10);
         box.setAlignment(Pos.CENTER);
         ProgressIndicator spinner = new ProgressIndicator();
         spinner.setMaxSize(28, 28);
         Label msg = new Label("Loading Result Card...");
-        msg.setStyle("-fx-text-fill: #888888; -fx-font-size: 13px;");
+        msg.setStyle("-fx-text-fill: -color-text-muted; -fx-font-size: 13px;");
         box.getChildren().addAll(spinner, msg);
         loading.getChildren().add(box);
         VBox.setVgrow(loading, Priority.ALWAYS);
@@ -225,8 +229,13 @@ public class ResultTabView {
             buildLoading();
             loadData(true);
         });
-        
-        headerRow.getChildren().addAll(titleBox, spacer, refreshBtn);
+
+        Button exportBtn = new Button("📥 Export PDF");
+        exportBtn.getStyleClass().add("accent-button");
+        exportBtn.setOnAction(e -> exportResultPdf(tables));
+        HBox.setMargin(exportBtn, new Insets(0, 8, 0, 0));
+
+        headerRow.getChildren().addAll(titleBox, spacer, exportBtn, refreshBtn);
         wrapper.getChildren().add(headerRow);
 
         // Content section
@@ -269,12 +278,16 @@ public class ResultTabView {
                     else return new SimpleStringProperty("");
                 });
                 
-                // Try to smartly size columns based on typical transcript headers
+                // RESIZING FIX: Set safe preferred AND minimum widths so that the CONSTRAINED_RESIZE_POLICY does not compress columns to unreadable sizes on narrow screens
                 String header = table.headers().get(i).toLowerCase();
                 if (header.contains("course title") || header.contains("subject")) {
                     column.setPrefWidth(250);
+                    column.setMinWidth(200);
                 } else if (header.contains("code") || header.contains("credit") || header.contains("grade") || header.contains("marks")) {
                     column.setPrefWidth(80);
+                    column.setMinWidth(70);
+                } else {
+                    column.setMinWidth(70);
                 }
                 
                 tableView.getColumns().add(column);
@@ -321,6 +334,41 @@ public class ResultTabView {
 
         box.getChildren().addAll(icon, titleLabel, msgLabel);
         return box;
+    }
+
+    private void exportResultPdf(List<SemesterResultTable> tables) {
+        if (tables == null || tables.isEmpty()) {
+            showExportError("Export Failed", "No result data available to export.");
+            return;
+        }
+
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Save Result Card PDF");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF Files", "*.pdf"));
+        String reg = context.getSessionRegistration() == null ? "Result_Card" : "Result_Card_" + context.getSessionRegistration();
+        chooser.setInitialFileName(reg + ".pdf");
+        File file = chooser.showSaveDialog(context.stage());
+        if (file == null) {
+            return;
+        }
+
+        try {
+            String studentName = context.portalRepository().getCurrentStudentName();
+            String regNo = context.getSessionRegistration();
+            new PdfExportService().exportResultCard(studentName, regNo, tables, file);
+        } catch (Exception ex) {
+            showExportError("Export Failed", ex.getMessage());
+        }
+    }
+
+    private void showExportError(String title, String message) {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.ERROR);
+            alert.setTitle(title);
+            alert.setHeaderText(null);
+            alert.setContentText(message);
+            alert.showAndWait();
+        });
     }
 
     private HBox buildOfflineBanner() {
