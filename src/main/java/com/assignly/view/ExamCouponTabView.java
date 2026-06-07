@@ -360,13 +360,17 @@ public class ExamCouponTabView {
     // ==================== Dashboard UI ====================
 
     private VBox buildDashboardView(String htmlContent) {
+        // Parse HTML data
+        parseCouponHtml(htmlContent);
+
+        if (parsedExams == null || parsedExams.isEmpty()) {
+            return buildNoCouponView();
+        }
+
         VBox mainContainer = new VBox(20);
         mainContainer.setPadding(new Insets(20));
         mainContainer.setStyle("-fx-background-color: -color-bg-main;");
         VBox.setVgrow(mainContainer, Priority.ALWAYS);
-
-        // Parse HTML data
-        parseCouponHtml(htmlContent);
 
         // Header Title
         HBox headerBar = new HBox();
