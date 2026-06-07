@@ -6,7 +6,7 @@
 
     <groupId>com.assignly</groupId>
     <artifactId>assignly-desktop</artifactId>
-    <version>1.1.0</version>
+    <version>1.0.0</version>
     <name>Assignly Desktop</name>
     <description>Assignly Desktop: JavaFX automated SIS client for COMSATS students</description>
 

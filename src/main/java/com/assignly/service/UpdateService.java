@@ -1,10 +1,19 @@
 package com.assignly.service;
 
+import java.awt.Desktop;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
 import com.assignly.model.UserPreferences;
 import com.assignly.util.AppContext;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+
 import javafx.animation.FadeTransition;
 import javafx.animation.ParallelTransition;
 import javafx.animation.TranslateTransition;
@@ -24,16 +33,8 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 
-import java.awt.Desktop;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URL;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-
 public class UpdateService {
-    public static final String CURRENT_VERSION = "v1.1.0";
+    public static final String CURRENT_VERSION = "v1.0.0";
     private static final String GITHUB_API_LATEST = "https://api.github.com/repos/danycli/AssignlyDesktop/releases/latest";
     private static final String GITHUB_API_ALL = "https://api.github.com/repos/danycli/AssignlyDesktop/releases";
     private static final String WEBSITE_URL = "https://assignly-web.vercel.app/";
