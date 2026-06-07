@@ -33,7 +33,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 public class UpdateService {
-    public static final String CURRENT_VERSION = "v1.0.0";
+    public static final String CURRENT_VERSION = "v1.1.0";
     private static final String GITHUB_API_LATEST = "https://api.github.com/repos/danycli/AssignlyDesktop/releases/latest";
     private static final String GITHUB_API_ALL = "https://api.github.com/repos/danycli/AssignlyDesktop/releases";
     private static final String WEBSITE_URL = "https://assignly-web.vercel.app/";
