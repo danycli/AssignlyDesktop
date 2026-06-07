@@ -11,6 +11,7 @@ import com.lowagie.text.PageSize;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.Phrase;
 import com.lowagie.text.Rectangle;
+import com.lowagie.text.pdf.PdfGState;
 import com.lowagie.text.pdf.PdfPCell;
 import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
@@ -23,6 +24,7 @@ import java.util.List;
 public class PdfExportService {
     private static final Color CYPRUS_GREEN = new Color(0, 70, 67);
     private static final Color SOFT_ROW = new Color(236, 244, 243);
+    private static final Color SAND_ROW = new Color(249, 248, 247);
     private static final Font TITLE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 18, CYPRUS_GREEN);
     private static final Font SUBTITLE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, Color.DARK_GRAY);
     private static final Font SECTION_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, CYPRUS_GREEN);
@@ -84,7 +86,7 @@ public class PdfExportService {
 
     private byte[] loadLogoBytes() {
         try {
-            java.io.File file = new java.io.File("cui_logo.png");
+            java.io.File file = new java.io.File(com.assignly.util.AppDirectoryHelper.getAppDataDir(), "cui_logo.png");
             if (file.exists()) {
                 return java.nio.file.Files.readAllBytes(file.toPath());
             }
@@ -153,26 +155,41 @@ public class PdfExportService {
         document.add(headerTable);
 
         // 2. Add Student Info Cards Row
+        // 2. Add Student Info Cards Row (Styled as a card matching the Sand theme)
         if (name == null) name = "N/A";
         if (regNo == null) regNo = "N/A";
 
+        PdfPTable cardTable = new PdfPTable(1);
+        cardTable.setWidthPercentage(100);
+        cardTable.setSpacingAfter(15);
+
+        PdfPCell cardCell = new PdfPCell();
+        cardCell.setBackgroundColor(SAND_ROW);
+        cardCell.setPadding(10);
+        cardCell.setBorder(Rectangle.LEFT | Rectangle.BOX);
+        cardCell.setBorderColor(new Color(224, 219, 217)); // sand border
+        cardCell.setBorderColorLeft(CYPRUS_GREEN); // accent border
+        cardCell.setBorderWidthLeft(3.5f);
+        cardCell.setBorderWidth(0.5f);
+
         PdfPTable infoTable = new PdfPTable(2);
         infoTable.setWidthPercentage(100);
-        infoTable.setWidths(new float[]{50, 50});
-        infoTable.setSpacingAfter(10);
+        infoTable.setWidths(new float[]{55, 45});
 
-        PdfPCell nameCell = new PdfPCell(new Phrase("Student Name:  " + name.toUpperCase(), BODY_BOLD_FONT));
+        PdfPCell nameCell = new PdfPCell(new Phrase("STUDENT NAME:   " + name.toUpperCase(), BODY_BOLD_FONT));
         nameCell.setBorder(Rectangle.NO_BORDER);
-        nameCell.setPadding(4);
+        nameCell.setPadding(2);
         infoTable.addCell(nameCell);
 
-        PdfPCell regCell = new PdfPCell(new Phrase("Registration No: " + regNo.toUpperCase(), BODY_BOLD_FONT));
+        PdfPCell regCell = new PdfPCell(new Phrase("REGISTRATION NO:  " + regNo.toUpperCase(), BODY_BOLD_FONT));
         regCell.setBorder(Rectangle.NO_BORDER);
-        regCell.setPadding(4);
+        regCell.setPadding(2);
         infoTable.addCell(regCell);
 
         infoTable.completeRow();
-        document.add(infoTable);
+        cardCell.addElement(infoTable);
+        cardTable.addCell(cardCell);
+        document.add(cardTable);
 
         // 3. Add dividing line
         PdfPTable lineTable = new PdfPTable(1);
@@ -215,8 +232,10 @@ public class PdfExportService {
         for (String header : headers) {
             PdfPCell cell = new PdfPCell(new Phrase(header, HEADER_FONT));
             cell.setBackgroundColor(CYPRUS_GREEN);
+            cell.setBorder(Rectangle.BOTTOM);
             cell.setBorderColor(Color.WHITE);
-            cell.setPadding(6);
+            cell.setBorderWidth(1.5f);
+            cell.setPadding(8);
             cell.setHorizontalAlignment(getAlignmentForHeader(header));
             pdfTable.addCell(cell);
         }
@@ -224,20 +243,44 @@ public class PdfExportService {
         boolean shade = false;
         for (List<String> row : rows) {
             boolean isGpaRow = highlightGpaRows && row != null && row.stream().anyMatch(this::isGpaCell);
-            for (int i = 0; i < headers.size(); i++) {
-                String value = row != null && i < row.size() ? row.get(i) : "";
-                PdfPCell cell = new PdfPCell(new Phrase(value, isGpaRow ? BODY_BOLD_FONT : BODY_FONT));
-                cell.setPadding(6);
-                cell.setBorderColor(new Color(225, 225, 225));
-                cell.setHorizontalAlignment(getAlignmentForHeader(headers.get(i)));
-                if (isGpaRow) {
-                    cell.setBackgroundColor(SOFT_ROW);
-                } else if (shade) {
-                    cell.setBackgroundColor(new Color(245, 245, 245));
+            if (isGpaRow) {
+                // Find and combine the non-empty text in the GPA row
+                StringBuilder sb = new StringBuilder();
+                if (row != null) {
+                    for (String val : row) {
+                        if (val != null && !val.trim().isEmpty()) {
+                            if (sb.length() > 0) sb.append("     |     ");
+                            sb.append(val.trim());
+                        }
+                    }
                 }
+                PdfPCell cell = new PdfPCell(new Phrase(sb.toString(), BODY_BOLD_FONT));
+                cell.setColspan(headers.size());
+                cell.setPadding(8);
+                cell.setBorder(Rectangle.BOTTOM | Rectangle.TOP);
+                cell.setBorderColor(new Color(224, 219, 217)); // sand border
+                cell.setBorderWidth(1f);
+                cell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+                cell.setBackgroundColor(SOFT_ROW);
                 pdfTable.addCell(cell);
+            } else {
+                for (int i = 0; i < headers.size(); i++) {
+                    String value = row != null && i < row.size() ? row.get(i) : "";
+                    PdfPCell cell = new PdfPCell(new Phrase(value, BODY_FONT));
+                    cell.setPadding(7);
+                    cell.setBorder(Rectangle.BOTTOM); // Clean horizontal separator lines only
+                    cell.setBorderColor(new Color(230, 225, 222)); // light sand border
+                    cell.setBorderWidth(0.5f);
+                    cell.setHorizontalAlignment(getAlignmentForHeader(headers.get(i)));
+                    if (shade) {
+                        cell.setBackgroundColor(SAND_ROW);
+                    } else {
+                        cell.setBackgroundColor(Color.WHITE);
+                    }
+                    pdfTable.addCell(cell);
+                }
+                shade = !shade;
             }
-            if (!isGpaRow) shade = !shade;
         }
 
         document.add(pdfTable);
@@ -258,15 +301,19 @@ public class PdfExportService {
         public void onEndPage(PdfWriter writer, Document document) {
             com.lowagie.text.pdf.PdfContentByte cb = writer.getDirectContent();
             
-            // 1. Draw Watermark under content
+            // 1. Draw Watermark under content with transparent alpha
             com.lowagie.text.pdf.PdfContentByte cbUnder = writer.getDirectContentUnder();
             cbUnder.saveState();
-            cbUnder.setColorFill(new Color(245, 245, 245)); // Extremely light gray
             try {
-                Font font = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 32);
+                com.lowagie.text.pdf.PdfGState gstate = new com.lowagie.text.pdf.PdfGState();
+                gstate.setFillOpacity(0.04f); // 4% opacity (extremely faint and professional)
+                cbUnder.setGState(gstate);
+                cbUnder.setColorFill(CYPRUS_GREEN); // Cyprus Green watermark
+                
+                Font font = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 42);
                 com.lowagie.text.pdf.BaseFont bf = font.getCalculatedBaseFont(false);
                 cbUnder.beginText();
-                cbUnder.setFontAndSize(bf, 32);
+                cbUnder.setFontAndSize(bf, 42);
                 float x = (document.right() - document.left()) / 2 + document.leftMargin();
                 float y = (document.top() - document.bottom()) / 2 + document.bottomMargin();
                 cbUnder.showTextAligned(Element.ALIGN_CENTER, watermarkText, x, y, 45);

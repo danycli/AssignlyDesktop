@@ -78,7 +78,8 @@ public class PortalRepository {
     public record GpaHistoryData(
             String semesterTitle,
             double sgpa,
-            double cgpa
+            double cgpa,
+            double creditHours
     ) {}
 
     public record ScholarshipTable(
@@ -152,26 +153,94 @@ public class PortalRepository {
             .followRedirects(true)
             .addInterceptor(chain -> {
                 okhttp3.Request request = chain.request();
-                okhttp3.Response response = chain.proceed(request);
+                String requestUrl = request.url().toString();
                 
-                String url = request.url().toString().toLowerCase();
-                if (url.contains("login.aspx")) {
-                    return response;
+                // Track authentication state (cookies) before request is sent
+                List<Cookie> cookies = new ArrayList<>();
+                Map<String, Cookie> hostCookies = cookieStore.get(request.url().host());
+                if (hostCookies != null) {
+                    cookies.addAll(hostCookies.values());
                 }
                 
-                if (response.isSuccessful() && response.body() != null) {
-                    okhttp3.MediaType mediaType = response.body().contentType();
-                    if (mediaType != null && mediaType.subtype().equalsIgnoreCase("html")) {
-                        String bodyString = response.peekBody(1024 * 1024).string();
-                        if (bodyString.contains("txtUsername") || bodyString.contains("btnLogin")) {
-                            if (onSessionExpiredCallback != null) {
-                                onSessionExpiredCallback.run();
-                            }
-                            throw new SessionExpiredException("Session expired. Portal redirected to Login.");
-                        }
+                boolean hasAuth = hasSessionCookiesForHost(request.url().host());
+                StringBuilder cookieLog = new StringBuilder();
+                cookieLog.append(hasAuth ? "Authenticated (Session/Auth Cookies Present)" : "Not Authenticated (No Session/Auth Cookies)");
+                if (!cookies.isEmpty()) {
+                    cookieLog.append(" | Active Cookies: ");
+                    for (Cookie c : cookies) {
+                        cookieLog.append(c.name()).append("=").append(c.value()).append("; ");
                     }
                 }
-                return response;
+                String authState = cookieLog.toString();
+
+                okhttp3.Response response = null;
+                Exception exception = null;
+                try {
+                    response = chain.proceed(request);
+                    
+                    String urlLower = request.url().toString().toLowerCase();
+                    if (!urlLower.contains("login.aspx")) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            okhttp3.MediaType mediaType = response.body().contentType();
+                            if (mediaType != null && mediaType.subtype().equalsIgnoreCase("html")) {
+                                String bodyString = response.peekBody(1024 * 1024).string();
+                                if (bodyString.contains("txtUsername") || bodyString.contains("btnLogin")) {
+                                    if (onSessionExpiredCallback != null) {
+                                        onSessionExpiredCallback.run();
+                                    }
+                                    throw new SessionExpiredException("Session expired. Portal redirected to Login.");
+                                }
+                            }
+                        }
+                    }
+                    return response;
+                } catch (Exception e) {
+                    exception = e;
+                    throw e;
+                } finally {
+                    StringBuilder logBuilder = new StringBuilder();
+                    logBuilder.append("\n========================================\n");
+                    logBuilder.append("Request:\n").append(requestUrl).append("\n\n");
+                    logBuilder.append("Authentication State:\n").append(authState).append("\n\n");
+                    
+                    if (exception != null) {
+                        logBuilder.append("Status:\n").append("FAILED\n\n");
+                        logBuilder.append("Exception Message:\n").append(exception.getMessage() != null ? exception.getMessage() : exception.getClass().getSimpleName()).append("\n");
+                    } else if (response != null) {
+                        int code = response.code();
+                        logBuilder.append("Status:\n").append(code).append("\n\n");
+                        
+                        if (code >= 300 && code < 400) {
+                            String redirectUrl = response.header("Location");
+                            logBuilder.append("Redirect Target:\n").append(redirectUrl != null ? redirectUrl : "Unknown").append("\n\n");
+                        }
+                        
+                        long len = -1;
+                        if (response.body() != null) {
+                            len = response.body().contentLength();
+                            if (len <= 0) {
+                                try {
+                                    len = response.peekBody(1024 * 1024).bytes().length;
+                                } catch (Exception ignored) {}
+                            }
+                        }
+                        logBuilder.append("Response Length:\n").append(len).append("\n");
+                    }
+                    logBuilder.append("========================================\n");
+                    System.out.println(logBuilder.toString());
+                    
+                    // Also write to assignly.log
+                    synchronized (ErrorReporter.class) {
+                        try {
+                            java.nio.file.Files.writeString(
+                                com.assignly.util.AppDirectoryHelper.getLogPath(), 
+                                logBuilder.toString(), 
+                                java.nio.file.StandardOpenOption.CREATE, 
+                                java.nio.file.StandardOpenOption.APPEND
+                            );
+                        } catch (Exception ignored) {}
+                    }
+                }
             })
             .build();
 
@@ -419,9 +488,15 @@ public class PortalRepository {
                 String key = cells.get(i).text().trim().replaceAll("\\s*:$", "");
                 String value = cells.get(i + 1).text().trim();
                 if (!key.isEmpty() && !value.isEmpty()) {
-                    info.put(key, value);
+                    info.putIfAbsent(key, value);
                 }
             }
+        }
+
+        // Fallback for registered courses if not parsed inside table rows
+        Element regCoursesSpan = doc.selectFirst("[id*=lbl_RegisteredCourses], [id*=lblRegisteredCourses]");
+        if (regCoursesSpan != null && !regCoursesSpan.text().trim().isEmpty()) {
+            info.put("Registered Courses", regCoursesSpan.text().trim());
         }
 
         // 2. Parse photo URL
@@ -435,33 +510,63 @@ public class PortalRepository {
         // 3. Parse attendance data – look for overall attendance percentages
         // The page has a table/chart with course codes and percentages
         Map<String, Double> attendance = new LinkedHashMap<>();
-        // Try to find attendance-related text patterns in spans/tds
-        for (Element el : doc.select("span, td, th")) {
-            String text = el.text().trim();
-            // Look for patterns like course codes (3-4 letters + 3 digits)
-            if (text.matches("^[A-Z]{2,4}\\d{2,4}$")) {
-                // Try to find a sibling or nearby element with a percentage
-                Element nextSib = el.nextElementSibling();
-                if (nextSib != null) {
-                    String pct = nextSib.text().trim().replaceAll("[^0-9.]", "");
-                    try {
-                        double val = Double.parseDouble(pct);
-                        if (val >= 0 && val <= 100) attendance.put(text, val);
-                    } catch (NumberFormatException ignored) {}
+
+        // Parse from ECharts scripts if present (primary source on COMSATS portal)
+        for (Element script : doc.select("script")) {
+            String scriptContent = script.data();
+            if (scriptContent.contains("courseAttendanceChart")) {
+                Pattern seriesPattern = Pattern.compile(
+                    "name\\s*:\\s*['\"]([^'\"]+)['\"]\\s*,.*?data\\s*:\\s*\\[([^\\]]+)\\]", 
+                    Pattern.DOTALL
+                );
+                Matcher matcher = seriesPattern.matcher(scriptContent);
+                while (matcher.find()) {
+                    String courseName = matcher.group(1).trim();
+                    String dataStr = matcher.group(2);
+                    for (String part : dataStr.split(",")) {
+                        part = part.trim();
+                        if (!part.equalsIgnoreCase("null") && !part.isEmpty()) {
+                            try {
+                                double val = Double.parseDouble(part);
+                                if (val >= 0 && val <= 100) {
+                                    attendance.put(courseName, val);
+                                }
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    }
                 }
             }
         }
-        // Also try parsing from any table rows that look like "CourseName | percentage"
-        for (Element row : doc.select("tr")) {
-            Elements cells = row.select("td");
-            if (cells.size() >= 2) {
-                String first = cells.first().text().trim();
-                String last = cells.last().text().trim().replaceAll("[^0-9.]", "");
-                if (first.matches(".*[A-Z]{2,4}\\d{2,4}.*") && !last.isEmpty()) {
-                    try {
-                        double val = Double.parseDouble(last);
-                        if (val >= 0 && val <= 100) attendance.put(first, val);
-                    } catch (NumberFormatException ignored) {}
+
+        // Fallback: Try to find attendance-related text patterns in spans/tds/tables
+        if (attendance.isEmpty()) {
+            for (Element el : doc.select("span, td, th")) {
+                String text = el.text().trim();
+                // Look for patterns like course codes (3-4 letters + 3 digits)
+                if (text.matches("^[A-Z]{2,4}\\d{2,4}$")) {
+                    // Try to find a sibling or nearby element with a percentage
+                    Element nextSib = el.nextElementSibling();
+                    if (nextSib != null) {
+                        String pct = nextSib.text().trim().replaceAll("[^0-9.]", "");
+                        try {
+                            double val = Double.parseDouble(pct);
+                            if (val >= 0 && val <= 100) attendance.put(text, val);
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+            }
+            // Also try parsing from any table rows that look like "CourseName | percentage"
+            for (Element row : doc.select("tr")) {
+                Elements cells = row.select("td");
+                if (cells.size() >= 2) {
+                    String first = cells.first().text().trim();
+                    String last = cells.last().text().trim().replaceAll("[^0-9.]", "");
+                    if (first.matches(".*[A-Z]{2,4}\\d{2,4}.*") && !last.isEmpty()) {
+                        try {
+                            double val = Double.parseDouble(last);
+                            if (val >= 0 && val <= 100) attendance.put(first, val);
+                        } catch (NumberFormatException ignored) {}
+                    }
                 }
             }
         }
@@ -469,18 +574,58 @@ public class PortalRepository {
         return new DashboardData(photoUrl, info, attendance);
     }
 
+    public Map<String, String> parseCourseNames(String html) {
+        Map<String, String> map = new HashMap<>();
+        if (html == null || html.isBlank()) return map;
+        try {
+            Document doc = Jsoup.parse(html);
+            for (Element table : doc.select("table")) {
+                for (Element row : table.select("tr")) {
+                    Elements cells = row.select("td");
+                    if (cells.size() >= 2) {
+                        String first = cells.get(0).text().trim();
+                        String second = cells.get(1).text().trim();
+                        if (first.matches("^[A-Z]{2,4}\\s*-?\\d{2,4}$") && !second.isEmpty()) {
+                            map.put(first, second);
+                            String normKey = first.replaceAll("\\s+|-", "").toUpperCase();
+                            map.put(normKey, second);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            ErrorReporter.logError("PortalRepository#parseCourseNames", e);
+        }
+        return map;
+    }
+
     public List<GpaHistoryData> parseGpaHistory(String html) {
         List<GpaHistoryData> history = new ArrayList<>();
         if (html == null || html.isBlank()) return history;
         Document doc = Jsoup.parse(html);
         
-        for (Element table : doc.select("table")) {
+        Elements allTables = doc.select("table");
+        for (int i = 0; i < allTables.size(); i++) {
+            Element table = allTables.get(i);
             Elements rows = table.select("tr");
             if (rows.size() < 2) continue;
             
+            // Validate that this is actually a transcript table (and not a personal info table)
+            Elements firstRowCells = rows.first().select("th, td");
+            boolean isTranscript = false;
+            for (Element cell : firstRowCells) {
+                String lower = cell.text().toLowerCase();
+                if (lower.contains("course") || lower.contains("credit") || lower.contains("marks") || lower.contains("grade") || lower.contains("gpa")) {
+                    isTranscript = true;
+                    break;
+                }
+            }
+            if (!isTranscript) continue;
+            
             // Try to find SGPA and CGPA in this table (usually at the bottom)
-            double sgpa = -1;
-            double cgpa = -1;
+            double sgpa = -1.0;
+            double cgpa = -1.0;
+            double semesterCredits = 0.0;
             String semesterTitle = "Semester";
             
             // Look for title above table
@@ -494,10 +639,40 @@ public class PortalRepository {
                 prev = prev.previousElementSibling();
             }
 
+            // Calculate total credits for this semester table
+            for (Element row : rows) {
+                Elements cells = row.select("td, th");
+                if (cells.size() >= 4) {
+                    String creditStr = "";
+                    String gpStr = "";
+                    String lgStr = "";
+                    if (cells.size() >= 6) {
+                        creditStr = cells.get(2).text().trim();
+                        lgStr = cells.get(4).text().trim();
+                        gpStr = cells.get(5).text().trim();
+                    } else {
+                        creditStr = cells.get(1).text().trim();
+                        lgStr = cells.get(2).text().trim();
+                        gpStr = cells.get(3).text().trim();
+                    }
+                    try {
+                        double credit = Double.parseDouble(creditStr);
+                        if (credit > 0) {
+                            boolean isNonCredit = gpStr.toLowerCase().contains("non credit") || 
+                                                  lgStr.toLowerCase().contains("non credit") ||
+                                                  creditStr.toLowerCase().contains("non credit");
+                            if (!isNonCredit) {
+                                semesterCredits += credit;
+                            }
+                        }
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+
             for (Element row : rows) {
                 String rowText = row.text().toUpperCase();
                 // Strategy 1: Fallback checks for explicit ID patterns in rows or table siblings
-                if (sgpa == -1) {
+                if (sgpa == -1.0) {
                     Element sSpan = table.parent().selectFirst("[id*=lblSGPA], [id*=sgpa]");
                     if (sSpan != null) {
                         try { sgpa = Double.parseDouble(sSpan.text().trim()); } catch (Exception ex) {
@@ -505,7 +680,7 @@ public class PortalRepository {
                         }
                     }
                 }
-                if (cgpa == -1) {
+                if (cgpa == -1.0) {
                     Element cSpan = table.parent().selectFirst("[id*=lblCGPA], [id*=cgpa]");
                     if (cSpan != null) {
                         try { cgpa = Double.parseDouble(cSpan.text().trim()); } catch (Exception ex) {
@@ -515,7 +690,7 @@ public class PortalRepository {
                 }
 
                 // Strategy 2: Simple regex to find SGPA and CGPA numbers in the row
-                if ((sgpa == -1 || cgpa == -1) && (rowText.contains("SGPA") || rowText.contains("CGPA"))) {
+                if ((sgpa == -1.0 || cgpa == -1.0) && (rowText.contains("SGPA") || rowText.contains("CGPA"))) {
                     Matcher mSgpa = Pattern.compile("SGPA\\s*(?::|\\-|=)?\\s*([0-9]+\\.[0-9]+)").matcher(rowText);
                     if (mSgpa.find()) {
                         try {
@@ -535,15 +710,57 @@ public class PortalRepository {
                     }
                 }
             }
-            
-            if (sgpa != -1 && cgpa != -1) {
-                history.add(new GpaHistoryData(semesterTitle, sgpa, cgpa));
+
+            // Strategy 3: Check the immediately following table for CGPA (COMSATS real portal layout)
+            if (cgpa == -1.0 && i + 1 < allTables.size()) {
+                Element nextTable = allTables.get(i + 1);
+                String nextTableText = nextTable.text().toUpperCase();
+                if (nextTableText.contains("CGPA")) {
+                    Matcher mCgpa = Pattern.compile("CGPA\\s*(?::|\\-|=)?\\s*([0-9]+\\.[0-9]+)").matcher(nextTableText);
+                    if (mCgpa.find()) {
+                        try { cgpa = Double.parseDouble(mCgpa.group(1)); } catch (NumberFormatException ignored) {}
+                    }
+                    Matcher mSgpa = Pattern.compile("SGPA\\s*(?::|\\-|=)?\\s*([0-9]+\\.[0-9]+)").matcher(nextTableText);
+                    if (mSgpa.find()) {
+                        try { sgpa = Double.parseDouble(mSgpa.group(1)); } catch (NumberFormatException ignored) {}
+                    }
+                }
             }
+
+            // Strategy 4: Dynamic SGPA Calculation from course rows as a fallback
+            if (sgpa == -1.0) {
+                double totalQualityPoints = 0.0;
+                double totalCredits = 0.0;
+                for (Element row : rows) {
+                    Elements cells = row.select("td, th");
+                    if (cells.size() >= 4) {
+                        String creditStr = "";
+                        String gpStr = "";
+                        if (cells.size() >= 6) {
+                            creditStr = cells.get(2).text().trim();
+                            gpStr = cells.get(5).text().trim();
+                        } else if (cells.size() >= 4) {
+                            creditStr = cells.get(1).text().trim();
+                            gpStr = cells.get(3).text().trim();
+                        }
+                        try {
+                            double credit = Double.parseDouble(creditStr);
+                            double gp = Double.parseDouble(gpStr);
+                            if (credit > 0 && gp >= 0.0 && gp <= 4.0) {
+                                totalQualityPoints += credit * gp;
+                                totalCredits += credit;
+                            }
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+                if (totalCredits > 0) {
+                    sgpa = totalQualityPoints / totalCredits;
+                }
+            }
+            
+            history.add(new GpaHistoryData(semesterTitle, sgpa, cgpa, semesterCredits));
         }
         
-        // Ensure chronological order if the page lists them in reverse (Spring 2020, Fall 2019 etc)
-        // Usually, COMSATS lists older semesters first, but just in case, we won't sort here, we'll plot them as they appear.
-        // Actually, older first is standard. Let's just return what we find.
         return history;
     }
 
@@ -693,6 +910,63 @@ public class PortalRepository {
                     .header("User-Agent", USER_AGENT)
                     .header("X-MicrosoftAjax", "Delta=true")
                     .header("X-Requested-With", "XMLHttpRequest")
+                    .build();
+
+            try (Response resp = client.newCall(postReq).execute()) {
+                if (!resp.isSuccessful()) return null;
+                return resp.body() != null ? resp.body().string() : "";
+            }
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    public String postbackEventStandard(String relativeUrl, String eventTarget) {
+        try {
+            String pageUrl = BASE_URL + "/" + relativeUrl;
+
+            // 1. GET to grab viewstate
+            Request getReq = new Request.Builder()
+                    .url(pageUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .header("Referer", BASE_URL + "/Dashboard.aspx")
+                    .build();
+            String pageHtml;
+            try (Response resp = client.newCall(getReq).execute()) {
+                if (!resp.isSuccessful()) return null;
+                pageHtml = resp.body() != null ? resp.body().string() : "";
+            }
+
+            Document doc = Jsoup.parse(pageHtml);
+            Element form = doc.select("form").first();
+            if (form == null) return null;
+
+            // 2. Build POST body
+            FormBody.Builder formBuilder = new FormBody.Builder();
+            for (Element input : form.select("input")) {
+                String name = input.attr("name");
+                String value = input.attr("value");
+                String type = input.attr("type").toLowerCase();
+                if (!name.isEmpty() && (type.equals("hidden") || type.equals("text") || type.equals("password") || type.equals("radio") || type.equals("checkbox"))) {
+                    if (!name.equals("__EVENTTARGET") && !name.equals("__EVENTARGUMENT")) {
+                        formBuilder.add(name, value);
+                    }
+                }
+            }
+            formBuilder.add("__EVENTTARGET", eventTarget);
+            formBuilder.add("__EVENTARGUMENT", "");
+
+            // 3. POST
+            String formAction = form.attr("action");
+            String postUrl = formAction.isBlank() ? pageUrl : (formAction.startsWith("http") ? formAction : BASE_URL + (formAction.startsWith("/") ? "" : "/") + formAction);
+
+            Request postReq = new Request.Builder()
+                    .url(postUrl)
+                    .post(formBuilder.build())
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("Referer", pageUrl)
+                    .header("Origin", BASE_URL)
+                    .header("User-Agent", USER_AGENT)
                     .build();
 
             try (Response resp = client.newCall(postReq).execute()) {
@@ -1301,6 +1575,7 @@ public class PortalRepository {
 
     public void clearSessionState() {
         cookieStore.clear();
+        inFlightRequests.clear();
         currentStudentName = null;
         currentStudentPhotoUrl = null;
     }
@@ -1478,7 +1753,7 @@ public class PortalRepository {
                 sourcePageUrl = temp;
             }
         }
-        String[] parts = payload.split(",");
+        String[] parts = payload.split(",", -1);
         if (parts.length < 2) return null;
         String target = decodePostBackPart(parts[0]);
         String argument = decodePostBackPart(parts[1]);
@@ -1569,7 +1844,7 @@ public class PortalRepository {
         if (element == null) return null;
         String tag = element.tagName().toLowerCase();
         String type = element.attr("type").toLowerCase();
-        boolean isSubmitLike = tag.equals("button") || tag.equals("a") || tag.equals("span") || 
+        boolean isSubmitLike = tag.equals("button") || 
             (tag.equals("input") && (type.equals("submit") || type.equals("button") || type.equals("image") || type.isEmpty()));
         if (!isSubmitLike) return null;
 
@@ -2237,6 +2512,8 @@ public class PortalRepository {
         String sourcePageUrl = postBackLink.sourcePageUrl();
         if (sourcePageUrl == null || sourcePageUrl.isBlank()) {
             sourcePageUrl = BASE_URL + "/CoursePortal.aspx";
+        } else {
+            sourcePageUrl = normalizeUrl(sourcePageUrl);
         }
         Request getRequest = new Request.Builder()
                 .url(sourcePageUrl)
@@ -2461,6 +2738,8 @@ public class PortalRepository {
         String sourcePageUrl = postBackLink.sourcePageUrl();
         if (sourcePageUrl == null || sourcePageUrl.isBlank()) {
             sourcePageUrl = BASE_URL + "/CoursePortal.aspx";
+        } else {
+            sourcePageUrl = normalizeUrl(sourcePageUrl);
         }
         Request getRequest = new Request.Builder()
                 .url(sourcePageUrl)
@@ -2618,11 +2897,23 @@ public class PortalRepository {
                 }
             }
 
-            String eventTarget = preferredButtonName != null ? preferredButtonName : defaultEventTarget;
-            logD("PortalAuth", "Using __EVENTTARGET: " + eventTarget);
+            boolean isSubmitButton = false;
+            if (preferredButton != null) {
+                String type = preferredButton.attr("type").toLowerCase();
+                String tag = preferredButton.tagName().toLowerCase();
+                isSubmitButton = (tag.equals("input") && (type.equals("submit") || type.equals("image"))) ||
+                                 (tag.equals("button") && type.equals("submit"));
+            }
 
-            formBuilder.addFormDataPart("__EVENTTARGET", eventTarget);
-            formBuilder.addFormDataPart("__EVENTARGUMENT", "");
+            String eventTarget = preferredButtonName != null ? preferredButtonName : defaultEventTarget;
+            if (!isSubmitButton) {
+                logD("PortalAuth", "Using __EVENTTARGET: " + eventTarget);
+                formBuilder.addFormDataPart("__EVENTTARGET", eventTarget);
+                formBuilder.addFormDataPart("__EVENTARGUMENT", "");
+            } else {
+                logD("PortalAuth", "Button is a standard submit button, skipping __EVENTTARGET");
+            }
+
             formBuilder.addFormDataPart("__VIEWSTATE", viewState);
             formBuilder.addFormDataPart("__EVENTVALIDATION", eventValidation);
             if (!viewStateGenerator.isEmpty()) {
@@ -2655,7 +2946,11 @@ public class PortalRepository {
 
             Elements fileInputs = targetForm.select("input[type=file]");
             logD("PortalAuth", "Found " + fileInputs.size() + " file input fields:");
-            String fileInputName = "ctl00$DataContent$fileAssignment1";
+            if (fileInputs.isEmpty()) {
+                return new UploadResult.Rejected("Upload dialog not found. The assignment may be closed or the portal layout has changed.");
+            }
+            
+            String fileInputName = "";
             for (Element input : fileInputs) {
                 String name = input.attr("name");
                 logD("PortalAuth", "  File input name: '" + name + "'");
@@ -2663,6 +2958,9 @@ public class PortalRepository {
                     fileInputName = name;
                     break; // Pick the FIRST file input as the primary submission slot!
                 }
+            }
+            if (fileInputName.isEmpty()) {
+                return new UploadResult.Rejected("Upload file input lacks a name attribute.");
             }
 
             logD("PortalAuth", "Adding file: " + file.getName());
@@ -2723,7 +3021,7 @@ public class PortalRepository {
             }
 
             if (responseHtml.toLowerCase().contains("aspnethidden")) {
-                logD("PortalAuth", "Found aspNetHidden - ASP.NET validation error");
+                // Just an indicator of ASP.NET markup, not necessarily an error
             }
             if (responseHtml.toLowerCase().contains("__viewstate")) {
                 logD("PortalAuth", "Response contains __VIEWSTATE - page reloaded");
@@ -2885,32 +3183,23 @@ public class PortalRepository {
             logD("PortalAuth", "  Has error: " + hasError);
             logD("PortalAuth", "  Response length: " + responseHtml.length());
 
-            String successProof = null;
             if (hasError) {
                 logD("PortalAuth", "Failed: Found error message");
+                return new UploadResult.Rejected(rejectionReason);
             } else if (hasSuccessMessage) {
                 logD("PortalAuth", "Success: Found success message");
-                successProof = "Server returned explicit success confirmation.";
-            } else if (!hasFileInput && hasViewstate && hasForm) {
-                logD("PortalAuth", "Success: File input disappeared and page reloaded");
-                successProof = "Server reloaded submission page and removed file input after submit.";
-            } else if (hasViewstate && hasForm && responseHtml.length() > 5000) {
-                logD("PortalAuth", "Success: Valid page response (" + responseHtml.length() + " bytes)");
-                successProof = "Server accepted multipart form and returned full portal response.";
-            } else if (responseUrl.toLowerCase().contains("courseportal")) {
-                logD("PortalAuth", "Success: Redirected to CoursePortal");
-                successProof = "Server redirected back to CoursePortal after submission.";
-            }
-
-            boolean isSuccess = successProof != null;
-            logD("PortalAuth", "Upload result: " + (isSuccess ? "SUCCESS" : "FAILED"));
-            logD("PortalAuth", "=== UPLOAD END ===");
-
-            if (isSuccess) {
                 return new UploadResult.Success();
-            } else {
-                return new UploadResult.Rejected(rejectionReason);
+            } else if (hasForm && !hasFileInput) {
+                logD("PortalAuth", "Success: File input disappeared and page reloaded");
+                return new UploadResult.Success();
+            } else if (visibleValidationMessages.isEmpty() && responseUrl.toLowerCase().contains("courseportal")) {
+                logD("PortalAuth", "Success: Redirected to CoursePortal with no validation errors");
+                return new UploadResult.Success();
             }
+
+            logD("PortalAuth", "Upload result: FAILED");
+            logD("PortalAuth", "=== UPLOAD END ===");
+            return new UploadResult.Rejected(rejectionReason);
         } catch (Exception e) {
             logE("PortalAuth", "Upload error: " + e.getMessage(), e);
             if (e instanceof IOException) {

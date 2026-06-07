@@ -57,8 +57,13 @@ public class SettingsTabView {
         root.setLeft(sidebar);
         root.setCenter(contentArea);
 
-        // Load default
-        btnGeneral.fire();
+        // Load default or pending subtab
+        if ("profile".equals(context.getPendingSettingsSubTab())) {
+            context.clearPendingSettingsSubTab();
+            btnProfile.fire();
+        } else {
+            btnGeneral.fire();
+        }
     }
 
     private Button createSubTabBtn(String text) {
@@ -111,13 +116,13 @@ public class SettingsTabView {
         applyOfflineStateIfOffline(syncBtn, "Force Sync Data", "🔄 ");
         syncBtn.setOnAction(e -> {
             if (!context.isOnline()) {
-                context.showToastError("Cannot force sync in offline mode.");
+                context.notificationService().showError("Cannot force sync in offline mode.");
                 return;
             }
             context.dataCacheService().clearAllCaches();
             syncBtn.setText("✅ Synced!");
             syncBtn.setDisable(true);
-            context.showToastSuccess("Cache cleared. Data will refresh on next load.");
+            context.notificationService().showSuccess("Cache cleared. Data will refresh on next load.");
         });
 
         // Quick Logout Button
@@ -177,7 +182,7 @@ public class SettingsTabView {
         notifToggle.selectedProperty().addListener((obs, oldVal, newVal) -> {
             prefs.setNotificationsEnabled(newVal);
             context.preferencesService().savePreferences(prefs);
-            context.showToastSuccess(newVal ? "Notifications enabled" : "Notifications disabled");
+            context.notificationService().showSuccess(newVal ? "Notifications enabled" : "Notifications disabled");
         });
 
         notifRow.getChildren().addAll(notifLbl, notifToggle);
@@ -221,13 +226,13 @@ public class SettingsTabView {
         autoLogin.setOnAction(e -> {
             UserPreferences p = context.preferencesService().loadPreferences();
             if (autoLogin.isSelected() && !context.credentialManager().hasRememberedCredentials()) {
-                context.showToastError("Auto-login requires saved credentials. Please log in with 'Remember Me' enabled.");
+                context.notificationService().showError("Auto-login requires saved credentials. Please log in with 'Remember Me' enabled.");
                 autoLogin.setSelected(false);
                 return;
             }
             p.setAutoLogin(autoLogin.isSelected());
             context.preferencesService().savePreferences(p);
-            context.showToastSuccess("Auto-login preference saved.");
+            context.notificationService().showSuccess("Auto-login preference saved.");
         });
 
         Button clearBtn = new Button("Wipe Saved Credentials");
@@ -248,7 +253,7 @@ public class SettingsTabView {
             
             clearBtn.setText("Credentials Wiped");
             clearBtn.setDisable(true);
-            context.showToastSuccess("Saved credentials wiped from database.");
+            context.notificationService().showSuccess("Saved credentials wiped from database.");
         });
 
         card.getChildren().addAll(regInfo, autoLogin, clearBtn);
@@ -269,7 +274,7 @@ public class SettingsTabView {
             context.dataCacheService().clearAllCaches();
             clearCache.setText("Cache Cleared Successfully");
             clearCache.setDisable(true);
-            context.showToastSuccess("Local cache cleared.");
+            context.notificationService().showSuccess("Local cache cleared.");
         });
         
         card.getChildren().addAll(cacheDesc, clearCache);
@@ -278,46 +283,76 @@ public class SettingsTabView {
 
     // --- PROFILE TAB ---
     private void loadProfile() {
-        VBox content = new VBox(16);
-        content.setMaxWidth(400);
+        VBox content = new VBox(20);
+        content.setMaxWidth(450);
+        content.setPadding(new Insets(24));
+        content.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12;");
         
         Label title = new Label("Update Profile Information");
-        title.setStyle("-fx-font-size:18px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
+        title.setStyle("-fx-font-size:18px;-fx-font-weight:800;-fx-text-fill: -color-text-main;");
         
         Label info = new Label("Loading profile data...");
-        info.setStyle("-fx-text-fill: -color-text-muted;");
+        info.setStyle("-fx-text-fill: -color-text-muted; -fx-font-size:13px; -fx-font-weight:500;");
 
         HBox cellBox = new HBox(8);
+        cellBox.setAlignment(Pos.CENTER_LEFT);
+        
         TextField networkField = new TextField();
         networkField.setPromptText("03XX");
-        networkField.setPrefWidth(70);
+        networkField.setPrefWidth(75);
+        networkField.setStyle("-fx-background-color: -color-bg-main; -fx-border-color: -color-border; -fx-border-radius: 6; -fx-background-radius: 6; -fx-text-fill: -color-text-main; -fx-padding: 8;");
         
         Label dash = new Label("-");
+        dash.setStyle("-fx-text-fill: -color-text-muted; -fx-font-weight: bold;");
         
         TextField numberField = new TextField();
         numberField.setPromptText("XXXXXXX");
-        numberField.setPrefWidth(150);
+        HBox.setHgrow(numberField, Priority.ALWAYS);
+        numberField.setMaxWidth(Double.MAX_VALUE);
+        numberField.setStyle("-fx-background-color: -color-bg-main; -fx-border-color: -color-border; -fx-border-radius: 6; -fx-background-radius: 6; -fx-text-fill: -color-text-main; -fx-padding: 8;");
         
         cellBox.getChildren().addAll(networkField, dash, numberField);
-        cellBox.setAlignment(Pos.CENTER_LEFT);
 
         TextField emailField = new TextField();
         emailField.setPromptText("Email Address");
+        emailField.setMaxWidth(Double.MAX_VALUE);
+        emailField.setStyle("-fx-background-color: -color-bg-main; -fx-border-color: -color-border; -fx-border-radius: 6; -fx-background-radius: 6; -fx-text-fill: -color-text-main; -fx-padding: 8;");
 
         saveProfileBtn = new Button("Save Profile");
         saveProfileBtn.getStyleClass().add("btn-primary");
         saveProfileBtn.setMaxWidth(Double.MAX_VALUE);
         saveProfileBtn.setDisable(true);
+        saveProfileBtn.setCursor(javafx.scene.Cursor.HAND);
+        saveProfileBtn.setStyle("-fx-background-color: -color-accent; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 13px; -fx-padding: 10 16; -fx-background-radius: 6;");
         applyOfflineStateIfOffline(saveProfileBtn, "Save Profile", "");
 
         Label statusLbl = new Label("");
         statusLbl.setWrapText(true);
         statusLbl.getStyleClass().add("status-success");
 
-        content.getChildren().addAll(title, info, 
-            new Label("Cell Number:"), cellBox, 
-            new Label("Email Address:"), emailField, 
-            new Region(), saveProfileBtn, statusLbl);
+        GridPane grid = new GridPane();
+        grid.setHgap(16);
+        grid.setVgap(16);
+        grid.setPadding(new Insets(8, 0, 8, 0));
+
+        ColumnConstraints col1 = new ColumnConstraints();
+        col1.setMinWidth(110);
+        col1.setPrefWidth(110);
+        ColumnConstraints col2 = new ColumnConstraints();
+        col2.setHgrow(Priority.ALWAYS);
+        grid.getColumnConstraints().addAll(col1, col2);
+
+        Label cellLabel = new Label("Cell Number:");
+        cellLabel.setStyle("-fx-font-size: 13px; -fx-font-weight: 600; -fx-text-fill: -color-text-main;");
+        grid.add(cellLabel, 0, 0);
+        grid.add(cellBox, 1, 0);
+
+        Label emailLabel = new Label("Email Address:");
+        emailLabel.setStyle("-fx-font-size: 13px; -fx-font-weight: 600; -fx-text-fill: -color-text-main;");
+        grid.add(emailLabel, 0, 1);
+        grid.add(emailField, 1, 1);
+
+        content.getChildren().addAll(title, info, grid, saveProfileBtn, statusLbl);
 
         ScrollPane sp = new ScrollPane(content);
         sp.setFitToWidth(true);
@@ -366,8 +401,10 @@ public class SettingsTabView {
 
     // --- CHANGE PASSWORD TAB ---
     private void loadPassword() {
-        VBox content = new VBox(16);
-        content.setMaxWidth(400);
+        VBox content = new VBox(20);
+        content.setMaxWidth(450);
+        content.setPadding(new Insets(24));
+        content.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12;");
 
         Label title = new Label("Change Password");
         title.setStyle("-fx-font-size:18px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
@@ -378,25 +415,58 @@ public class SettingsTabView {
 
         PasswordField oldPass = new PasswordField();
         oldPass.setPromptText("Current Password");
+        oldPass.setMaxWidth(Double.MAX_VALUE);
+        oldPass.setStyle("-fx-background-color: -color-bg-main; -fx-border-color: -color-border; -fx-border-radius: 6; -fx-background-radius: 6; -fx-text-fill: -color-text-main; -fx-padding: 8;");
+
         PasswordField newPass = new PasswordField();
         newPass.setPromptText("New Password");
+        newPass.setMaxWidth(Double.MAX_VALUE);
+        newPass.setStyle("-fx-background-color: -color-bg-main; -fx-border-color: -color-border; -fx-border-radius: 6; -fx-background-radius: 6; -fx-text-fill: -color-text-main; -fx-padding: 8;");
+
         PasswordField confPass = new PasswordField();
         confPass.setPromptText("Confirm New Password");
+        confPass.setMaxWidth(Double.MAX_VALUE);
+        confPass.setStyle("-fx-background-color: -color-bg-main; -fx-border-color: -color-border; -fx-border-radius: 6; -fx-background-radius: 6; -fx-text-fill: -color-text-main; -fx-padding: 8;");
 
         changePassBtn = new Button("Change Password");
         changePassBtn.getStyleClass().add("btn-primary");
         changePassBtn.setMaxWidth(Double.MAX_VALUE);
+        changePassBtn.setCursor(javafx.scene.Cursor.HAND);
+        changePassBtn.setStyle("-fx-background-color: -color-accent; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 13px; -fx-padding: 10 16; -fx-background-radius: 6;");
         applyOfflineStateIfOffline(changePassBtn, "Change Password", "");
 
         Label statusLbl = new Label("");
         statusLbl.setWrapText(true);
         statusLbl.getStyleClass().add("status-success");
 
-        content.getChildren().addAll(title, rules, 
-            new Label("Current Password:"), oldPass, 
-            new Label("New Password:"), newPass, 
-            new Label("Confirm Password:"), confPass, 
-            new Region(), changePassBtn, statusLbl);
+        GridPane grid = new GridPane();
+        grid.setHgap(16);
+        grid.setVgap(16);
+        grid.setPadding(new Insets(8, 0, 8, 0));
+
+        ColumnConstraints col1 = new ColumnConstraints();
+        col1.setMinWidth(120);
+        col1.setPrefWidth(120);
+        ColumnConstraints col2 = new ColumnConstraints();
+        col2.setHgrow(Priority.ALWAYS);
+        grid.getColumnConstraints().addAll(col1, col2);
+
+        Label oldLabel = new Label("Current Password:");
+        oldLabel.setStyle("-fx-font-size: 13px; -fx-font-weight: 600; -fx-text-fill: -color-text-main;");
+        grid.add(oldLabel, 0, 0);
+        grid.add(oldPass, 1, 0);
+
+        Label newLabel = new Label("New Password:");
+        newLabel.setStyle("-fx-font-size: 13px; -fx-font-weight: 600; -fx-text-fill: -color-text-main;");
+        grid.add(newLabel, 0, 1);
+        grid.add(newPass, 1, 1);
+
+        Label confLabel = new Label("Confirm Password:");
+        confLabel.setStyle("-fx-font-size: 13px; -fx-font-weight: 600; -fx-text-fill: -color-text-main;");
+        grid.add(confLabel, 0, 2);
+        grid.add(confPass, 1, 2);
+
+        content.getChildren().addAll(title, rules, grid, changePassBtn, statusLbl);
 
         ScrollPane sp = new ScrollPane(content);
         sp.setFitToWidth(true);
@@ -430,11 +500,7 @@ public class SettingsTabView {
                         context.credentialManager().clearRememberMe();
                         context.clearSessionCredentials();
                         
-                        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                        alert.setTitle("Password Changed");
-                        alert.setHeaderText("Success!");
-                        alert.setContentText("Your password has been changed. Please log in again with your new password.");
-                        alert.showAndWait();
+                        context.notificationService().showInfo("Password Changed", "Your password has been changed. Please log in again with your new password.");
                         
                         context.showLoginScreen();
                     } else {

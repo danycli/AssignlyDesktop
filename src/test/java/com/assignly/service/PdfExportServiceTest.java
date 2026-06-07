@@ -41,6 +41,31 @@ public class PdfExportServiceTest {
     }
 
     @Test
+    public void testExportResultCard_WithGpaRow() {
+        PdfExportService service = new PdfExportService();
+        File outputFile = tempDir.resolve("result_card_gpa.pdf").toFile();
+
+        List<SemesterResultTable> tables = List.of(
+            new SemesterResultTable(
+                "Spring 2023",
+                List.of("Course Code", "Course Title", "Credit Hours", "Marks", "Grade", "GP"),
+                List.of(
+                    List.of("CSC101", "Introduction to Computing", "4", "85", "A", "4.0"),
+                    List.of("MTH101", "Calculus I", "3", "78", "B", "3.0"),
+                    List.of("SGPA: 3.50     |     CGPA: 3.75", "", "", "", "", "")
+                )
+            )
+        );
+
+        assertDoesNotThrow(() -> {
+            service.exportResultCard("Test Student", "SP23-BCS-001", tables, outputFile);
+        });
+
+        assertTrue(outputFile.exists());
+        assertTrue(outputFile.length() > 0);
+    }
+
+    @Test
     public void testExportFeeHistory() {
         PdfExportService service = new PdfExportService();
         File outputFile = tempDir.resolve("fee_history.pdf").toFile();

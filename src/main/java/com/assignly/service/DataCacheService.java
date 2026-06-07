@@ -163,6 +163,29 @@ public class DataCacheService {
         return Optional.empty();
     }
 
+    public Optional<java.time.LocalDateTime> getAnnouncementsLastUpdated() {
+        String query = "SELECT MAX(updated_at) as max_val FROM announcements";
+        try (java.sql.Connection connection = databaseManager.getConnection();
+             java.sql.PreparedStatement pstmt = connection.prepareStatement(query);
+             java.sql.ResultSet rs = pstmt.executeQuery()) {
+            if (rs.next()) {
+                String maxVal = rs.getString("max_val");
+                if (maxVal != null && !maxVal.isBlank()) {
+                    try {
+                        return Optional.of(java.time.LocalDateTime.parse(maxVal));
+                    } catch (Exception ignored) {}
+                }
+            }
+        } catch (java.sql.SQLException e) {
+            System.err.println("Failed to read announcements last updated: " + e.getMessage());
+        }
+        
+        // Fallbacks
+        Optional<java.time.LocalDateTime> ts = getCacheTimestamp("Dashboard.aspx");
+        if (ts.isPresent()) return ts;
+        return getCacheTimestamp("Summary.aspx");
+    }
+
     public void saveSnapshot(PortalSnapshot snapshot) {
         try (Connection connection = databaseManager.getConnection()) {
             connection.setAutoCommit(false);
@@ -314,7 +337,7 @@ public class DataCacheService {
         }
 
         try {
-            java.io.File logo = new java.io.File("cui_logo.png");
+            java.io.File logo = new java.io.File(com.assignly.util.AppDirectoryHelper.getAppDataDir(), "cui_logo.png");
             if (logo.exists()) {
                 logo.delete();
             }

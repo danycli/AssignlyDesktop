@@ -1,0 +1,10 @@
+target/
+scratch/
+temp_assignly/
+graphify-out/
+*.class
+*.jar
+*.exe
+.idea/
+*.iml
+.vscode/

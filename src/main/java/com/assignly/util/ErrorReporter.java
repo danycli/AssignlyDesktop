@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 public final class ErrorReporter {
-    private static final Path LOG_PATH = Path.of("assignly.log");
+    private static final Path LOG_PATH = AppDirectoryHelper.getLogPath();
     private static final DateTimeFormatter TS_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -36,7 +36,7 @@ public final class ErrorReporter {
     public static void notify(AppContext appContext, String userMessage, String context, Throwable error) {
         logError(context, error);
         if (appContext != null && userMessage != null && !userMessage.isBlank()) {
-            appContext.showToastError(userMessage);
+            appContext.notificationService().showError(userMessage);
         }
     }
 

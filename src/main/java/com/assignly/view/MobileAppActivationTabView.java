@@ -1,74 +1,344 @@
 package com.assignly.view;
 
 import com.assignly.util.AppContext;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
-import javafx.scene.control.Label;
-import javafx.scene.layout.VBox;
+import javafx.geometry.Pos;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Mobile App Activation tab view – redesigned to match the modern dark theme of Assignly.
+ * Guides the user through app setup using badges, steps timeline, a dynamically resolved
+ * activation status layout, and dynamic Play Store download links.
+ */
 public class MobileAppActivationTabView {
-    private final VBox root = new VBox();
+    private final VBox root = new VBox(20);
     private final AppContext context;
-    private javafx.scene.control.Button submitBtn;
+    
+    // UI Elements
+    private Button submitBtn;
+    private Button playStoreLinkBtn;
+    private ProgressBar progressBar;
+    private Label statusLbl;
+    private final VBox statusCardContainer = new VBox(12);
+    private final VBox stepsContainer = new VBox();
+    private final List<VBox> stepCards = new ArrayList<>();
+    private boolean isLayoutNarrow = false;
+    
     private final java.util.function.Consumer<Boolean> connectivityListener = this::onConnectivityChanged;
 
     public MobileAppActivationTabView(AppContext context) {
         this.context = context;
         buildUI();
         context.addConnectivityListener(connectivityListener);
+        loadStatus();
     }
 
     private void buildUI() {
         root.setFillWidth(true);
-        root.setPadding(new Insets(24, 28, 24, 28));
+        root.setPadding(new Insets(20));
+        root.setStyle("-fx-background-color: -color-bg-main;");
 
-        Label title = new Label("Student App Activation");
-        title.setStyle("-fx-font-size:20px;-fx-font-weight:bold;-fx-text-fill: -color-text-main;");
-
-        javafx.scene.layout.HBox inputBox = new javafx.scene.layout.HBox(10);
-        inputBox.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        // 1. Premium Sleek Hero Card
+        VBox heroCard = new VBox(8);
+        heroCard.setPadding(new Insets(16, 20, 16, 20));
+        heroCard.setStyle("-fx-background-color: -color-bg-card;"
+                + "-fx-background-radius: 12;-fx-border-color: -color-border;-fx-border-width: 1;-fx-border-radius: 12;"
+                + "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.03), 8, 0, 0, 3);");
         
-        Label passLbl = new Label("Enter Your Current Password:");
-        javafx.scene.control.PasswordField passField = new javafx.scene.control.PasswordField();
-        passField.setPrefWidth(200);
+        Label heroTitle = new Label("Mobile App Activation");
+        heroTitle.setStyle("-fx-font-size: 18px; -fx-font-weight: 800; -fx-text-fill: -color-text-main;");
         
-        inputBox.getChildren().addAll(passLbl, passField);
+        Label heroDesc = new Label("Connect your student account with the official COMSATS mobile application for quick access to academic information.");
+        heroDesc.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500;");
+        heroDesc.setWrapText(true);
 
-        submitBtn = new javafx.scene.control.Button("Submit");
-        submitBtn.getStyleClass().add("btn-primary");
+        FlowPane badgesFlow = new FlowPane(8, 6);
+        badgesFlow.setPadding(new Insets(4, 0, 0, 0));
+        badgesFlow.getChildren().addAll(
+            createFeatureBadge("Attendance Tracking"),
+            createFeatureBadge("Results Access"),
+            createFeatureBadge("Timetable Viewing"),
+            createFeatureBadge("Notifications"),
+            createFeatureBadge("Course Updates")
+        );
 
-        Label statusLbl = new Label("");
-        statusLbl.getStyleClass().add("status-success");
-        statusLbl.setWrapText(true);
+        heroCard.getChildren().addAll(heroTitle, heroDesc, badgesFlow);
+        root.getChildren().add(heroCard);
 
-        VBox instructions = new VBox(10);
-        instructions.setStyle("-fx-padding:20 0 0 0;");
+        // 2. Main Content Split
+        HBox bodySplit = new HBox(20);
+        VBox.setVgrow(bodySplit, Priority.ALWAYS);
+
+        // Left Column (Activation Input & Notice)
+        VBox leftCol = new VBox(15);
+        HBox.setHgrow(leftCol, Priority.ALWAYS);
+
+        VBox activationCard = new VBox(15);
+        activationCard.setPadding(new Insets(20));
+        activationCard.setStyle("-fx-background-color: -color-bg-card;-fx-background-radius: 12;"
+                + "-fx-border-color: -color-border;-fx-border-width: 1;-fx-border-radius: 12;"
+                + "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.02), 8, 0, 0, 2);");
+
+        Label cardTitle = new Label("Portal Verification");
+        cardTitle.setStyle("-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -color-text-main;");
+
+        VBox passGroup = new VBox(8);
+        Label passLbl = new Label("Current Portal Password");
+        passLbl.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-muted; -fx-font-weight: bold;");
+
+        StackPane passwordStack = new StackPane();
+        passwordStack.setAlignment(Pos.CENTER_LEFT);
+
+        PasswordField pf = new PasswordField();
+        pf.setPromptText("Enter portal password");
         
-        javafx.scene.text.Text i1Text = new javafx.scene.text.Text("1 - Download the App CUOnline CUI Abbottabad from Google Play Store. ");
-        i1Text.getStyleClass().add("info-text");
-        javafx.scene.control.Hyperlink downloadLink = new javafx.scene.control.Hyperlink("Download");
-        downloadLink.getStyleClass().add("hyperlink-custom");
-        downloadLink.setOnAction(e -> {
-            try {
-                java.awt.Desktop.getDesktop().browse(new java.net.URI("https://play.google.com/store/apps/details?id=edupk.cuiatd.cuonlinestudentportal"));
-            } catch (Exception ex) {
-                ex.printStackTrace();
+        TextField tf = new TextField();
+        tf.setPromptText("Enter portal password");
+        tf.setManaged(false);
+        tf.setVisible(false);
+
+        String fieldStyleNormal = "-fx-background-color: -color-bg-elevated; -fx-text-fill: -color-text-main; -fx-prompt-text-fill: -color-text-muted-extra; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-radius: 8; -fx-padding: 10 36 10 12; -fx-font-size: 12px;";
+        String fieldStyleFocused = "-fx-background-color: -color-bg-elevated; -fx-text-fill: -color-text-main; -fx-prompt-text-fill: -color-text-muted-extra; -fx-border-color: -color-accent; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-radius: 8; -fx-padding: 10 36 10 12; -fx-font-size: 12px; -fx-effect: dropshadow(three-pass-box, rgba(20, 184, 166, 0.1), 6, 0, 0, 0);";
+
+        pf.setStyle(fieldStyleNormal);
+        tf.setStyle(fieldStyleNormal);
+
+        pf.focusedProperty().addListener((obs, oldVal, newVal) -> {
+            pf.setStyle(newVal ? fieldStyleFocused : fieldStyleNormal);
+        });
+        tf.focusedProperty().addListener((obs, oldVal, newVal) -> {
+            tf.setStyle(newVal ? fieldStyleFocused : fieldStyleNormal);
+        });
+
+        Button toggleBtn = new Button("👁");
+        toggleBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: -color-text-muted; -fx-cursor: hand; -fx-font-size: 13px; -fx-padding: 0;");
+        StackPane.setAlignment(toggleBtn, Pos.CENTER_RIGHT);
+        StackPane.setMargin(toggleBtn, new Insets(0, 12, 0, 0));
+
+        toggleBtn.setOnAction(e -> {
+            if (pf.isVisible()) {
+                tf.setText(pf.getText());
+                pf.setVisible(false);
+                pf.setManaged(false);
+                tf.setVisible(true);
+                tf.setManaged(true);
+                toggleBtn.setText("🙈");
+            } else {
+                pf.setText(tf.getText());
+                tf.setVisible(false);
+                tf.setManaged(false);
+                pf.setVisible(true);
+                pf.setManaged(true);
+                toggleBtn.setText("👁");
             }
         });
-        javafx.scene.text.TextFlow i1 = new javafx.scene.text.TextFlow(i1Text, downloadLink);
         
-        Label i2 = new Label("2 - Activate the App from this Page.");
-        i2.getStyleClass().add("info-text");
-        Label i3 = new Label("3 - Use same Password for Portal and App Login.");
-        i3.getStyleClass().add("info-text");
-        
-        instructions.getChildren().addAll(i1, i2, i3);
+        toggleBtn.setOnMouseEntered(e -> toggleBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: -color-accent; -fx-cursor: hand; -fx-font-size: 13px; -fx-padding: 0;"));
+        toggleBtn.setOnMouseExited(e -> toggleBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: -color-text-muted; -fx-cursor: hand; -fx-font-size: 13px; -fx-padding: 0;"));
 
+        passwordStack.getChildren().addAll(pf, tf, toggleBtn);
+        passGroup.getChildren().addAll(passLbl, passwordStack);
+
+        submitBtn = new Button("Activate Mobile Access");
+        submitBtn.setCursor(javafx.scene.Cursor.HAND);
+        submitBtn.setMaxWidth(Double.MAX_VALUE);
+        
+        String activeBtnStyle = "-fx-background-color: -color-accent; -fx-text-fill: white;"
+                + "-fx-font-size: 12px; -fx-font-weight: bold; -fx-padding: 10 20; -fx-background-radius: 8; -fx-cursor: hand;";
+        String hoverBtnStyle = "-fx-background-color: #0d9488; -fx-text-fill: white;"
+                + "-fx-font-size: 12px; -fx-font-weight: bold; -fx-padding: 10 20; -fx-background-radius: 8; -fx-cursor: hand; -fx-effect: dropshadow(three-pass-box, rgba(20, 184, 166, 0.25), 8, 0, 0, 2);";
+        
+        submitBtn.setStyle(activeBtnStyle);
+        submitBtn.setOnMouseEntered(e -> {
+            if (!submitBtn.isDisable()) submitBtn.setStyle(hoverBtnStyle);
+        });
+        submitBtn.setOnMouseExited(e -> {
+            if (!submitBtn.isDisable()) submitBtn.setStyle(activeBtnStyle);
+        });
+
+        progressBar = new ProgressBar();
+        progressBar.setMaxWidth(Double.MAX_VALUE);
+        progressBar.setVisible(false);
+        progressBar.setStyle("-fx-accent: -color-accent;");
+
+        statusLbl = new Label("");
+        statusLbl.setWrapText(true);
+        statusLbl.setVisible(false);
+        statusLbl.setManaged(false);
+
+        activationCard.getChildren().addAll(cardTitle, passGroup, submitBtn, progressBar, statusLbl);
+        
+        activationCard.setOnMouseEntered(e -> {
+            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), activationCard);
+            tt.setToY(-2);
+            tt.play();
+            activationCard.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12;"
+                    + "-fx-border-color: -color-accent; -fx-border-width: 1; -fx-border-radius: 12;"
+                    + "-fx-effect: dropshadow(three-pass-box, rgba(20, 184, 166, 0.05), 10, 0, 0, 3);");
+        });
+        activationCard.setOnMouseExited(e -> {
+            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), activationCard);
+            tt.setToY(0);
+            tt.play();
+            activationCard.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12;"
+                    + "-fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12;"
+                    + "-fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.02), 8, 0, 0, 2);");
+        });
+
+        HBox securityNotice = new HBox(8);
+        securityNotice.setAlignment(Pos.CENTER_LEFT);
+        securityNotice.setPadding(new Insets(12));
+        securityNotice.setStyle("-fx-background-color: rgba(20, 184, 166, 0.03); -fx-border-color: rgba(20, 184, 166, 0.12);"
+                + "-fx-border-width: 1;-fx-border-radius: 8;-fx-background-radius: 8;");
+        
+        Label lockIcon = new Label("🔒");
+        lockIcon.setStyle("-fx-font-size: 14px; -fx-text-fill: -color-accent;");
+        Label noticeText = new Label("Your password is verified securely through the university portal and is not stored locally.");
+        noticeText.setStyle("-fx-font-size: 10px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500;");
+        noticeText.setWrapText(true);
+        HBox.setHgrow(noticeText, Priority.ALWAYS);
+        securityNotice.getChildren().addAll(lockIcon, noticeText);
+
+        leftCol.getChildren().addAll(activationCard, securityNotice);
+
+        // Right Column (Status & Download Card)
+        VBox rightCol = new VBox(20);
+        rightCol.setPrefWidth(320);
+        rightCol.setMinWidth(280);
+        rightCol.setMaxWidth(350);
+
+        // Status Card Base
+        statusCardContainer.setPadding(new Insets(16));
+        statusCardContainer.setStyle("-fx-background-color: -color-bg-card;-fx-border-color: -color-border;"
+                + "-fx-border-width: 1;-fx-border-radius: 12;-fx-background-radius: 12;"
+                + "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.02), 8, 0, 0, 2);");
+        
+        statusCardContainer.setOnMouseEntered(e -> {
+            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), statusCardContainer);
+            tt.setToY(-2);
+            tt.play();
+            statusCardContainer.setStyle("-fx-background-color: -color-bg-card; -fx-border-color: -color-accent;"
+                    + "-fx-border-width: 1; -fx-border-radius: 12; -fx-background-radius: 12;"
+                    + "-fx-effect: dropshadow(three-pass-box, rgba(20, 184, 166, 0.05), 10, 0, 0, 3);");
+        });
+        statusCardContainer.setOnMouseExited(e -> {
+            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), statusCardContainer);
+            tt.setToY(0);
+            tt.play();
+            statusCardContainer.setStyle("-fx-background-color: -color-bg-card; -fx-border-color: -color-border;"
+                    + "-fx-border-width: 1; -fx-border-radius: 12; -fx-background-radius: 12;"
+                    + "-fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.02), 8, 0, 0, 2);");
+        });
+        
+        showNotActivatedStatus();
+
+        // Download App Card
+        VBox downloadCard = new VBox(12);
+        downloadCard.setPadding(new Insets(16));
+        downloadCard.setStyle("-fx-background-color: -color-bg-card;-fx-border-color: -color-border;"
+                + "-fx-border-width: 1;-fx-border-radius: 12;-fx-background-radius: 12;"
+                + "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.02), 8, 0, 0, 2);");
+
+        Label appName = new Label("CUOnline CUI Abbottabad");
+        appName.setStyle("-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -color-text-main;");
+        Label appSub = new Label("Official Student Mobile Application");
+        appSub.setStyle("-fx-font-size: 10px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500;");
+
+        HBox appHeader = new HBox(12);
+        appHeader.setAlignment(Pos.CENTER_LEFT);
+        Label phoneIcon = new Label("📱");
+        phoneIcon.setStyle("-fx-font-size: 24px;");
+        VBox titleBox = new VBox(2, appName, appSub);
+        appHeader.getChildren().addAll(phoneIcon, titleBox);
+
+        HBox downloadActions = new HBox(8);
+        downloadActions.setAlignment(Pos.CENTER_LEFT);
+
+        Button downloadBtn = new Button("Download APK");
+        downloadBtn.setCursor(javafx.scene.Cursor.HAND);
+        
+        String dlBtnStyle = "-fx-background-color: -color-accent; -fx-text-fill: white; -fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 8 14; -fx-background-radius: 6; -fx-cursor: hand;";
+        String dlBtnHover = "-fx-background-color: #0d9488; -fx-text-fill: white; -fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 8 14; -fx-background-radius: 6; -fx-cursor: hand;";
+        
+        downloadBtn.setStyle(dlBtnStyle);
+        downloadBtn.setOnMouseEntered(e -> downloadBtn.setStyle(dlBtnHover));
+        downloadBtn.setOnMouseExited(e -> downloadBtn.setStyle(dlBtnStyle));
+        downloadBtn.setOnAction(e -> launchUrl("https://play.google.com/store/apps/details?id=edupk.cuiatd.cuonlinestudentportal"));
+
+        playStoreLinkBtn = new Button("Open Play Store");
+        playStoreLinkBtn.setCursor(javafx.scene.Cursor.HAND);
+        
+        String playStyle = "-fx-background-color: -color-bg-elevated; -fx-text-fill: -color-text-main; -fx-border-color: -color-border; -fx-border-width: 1; -fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 7 13; -fx-background-radius: 6; -fx-border-radius: 6; -fx-cursor: hand;";
+        String playHover = "-fx-background-color: -color-bg-card; -fx-text-fill: -color-accent; -fx-border-color: -color-accent; -fx-border-width: 1; -fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 7 13; -fx-background-radius: 6; -fx-border-radius: 6; -fx-cursor: hand;";
+        
+        playStoreLinkBtn.setStyle(playStyle);
+        playStoreLinkBtn.setOnMouseEntered(e -> playStoreLinkBtn.setStyle(playHover));
+        playStoreLinkBtn.setOnMouseExited(e -> playStoreLinkBtn.setStyle(playStyle));
+        playStoreLinkBtn.setOnAction(e -> launchUrl("https://play.google.com/store/apps/details?id=edupk.cuiatd.cuonlinestudentportal"));
+
+        downloadActions.getChildren().addAll(downloadBtn, playStoreLinkBtn);
+        
+        Separator cardSep = new Separator();
+        cardSep.setStyle("-fx-background-color: -color-border; -fx-opacity: 0.25;");
+        
+        downloadCard.getChildren().addAll(appHeader, cardSep, downloadActions);
+        
+        downloadCard.setOnMouseEntered(e -> {
+            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), downloadCard);
+            tt.setToY(-2);
+            tt.play();
+            downloadCard.setStyle("-fx-background-color: -color-bg-card; -fx-border-color: -color-accent;"
+                    + "-fx-border-width: 1; -fx-border-radius: 12; -fx-background-radius: 12;"
+                    + "-fx-effect: dropshadow(three-pass-box, rgba(20, 184, 166, 0.05), 10, 0, 0, 3);");
+        });
+        downloadCard.setOnMouseExited(e -> {
+            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), downloadCard);
+            tt.setToY(0);
+            tt.play();
+            downloadCard.setStyle("-fx-background-color: -color-bg-card; -fx-border-color: -color-border;"
+                    + "-fx-border-width: 1; -fx-border-radius: 12; -fx-background-radius: 12;"
+                    + "-fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.02), 8, 0, 0, 2);");
+        });
+
+        rightCol.getChildren().addAll(statusCardContainer, downloadCard);
+        bodySplit.getChildren().addAll(leftCol, rightCol);
+        root.getChildren().add(bodySplit);
+
+        // 3. Visual Timeline Steps Container
+        VBox stepsTimeline = new VBox(12);
+        stepsTimeline.setPadding(new Insets(16));
+        stepsTimeline.setStyle("-fx-background-color: -color-bg-card;-fx-border-color: -color-border;"
+                + "-fx-border-width: 1;-fx-border-radius: 12;-fx-background-radius: 12;"
+                + "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.02), 8, 0, 0, 2);");
+
+        Label timelineTitle = new Label("Activation & Setup Steps");
+        timelineTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: 800; -fx-text-fill: -color-text-muted; -fx-letter-spacing: 0.5px;");
+        stepsTimeline.getChildren().add(timelineTitle);
+
+        stepsTimeline.getChildren().add(stepsContainer);
+        root.getChildren().add(stepsTimeline);
+
+        // Populate steps based on activation status
+        rebuildStepCards(false);
+
+        // Submit Button Action
         submitBtn.setOnAction(e -> {
+            clearStatus(statusLbl);
             if (!context.isOnline()) {
                 setStatusError(statusLbl, "Cannot activate app in offline mode.");
                 return;
             }
-            String enteredPass = passField.getText();
+            String enteredPass = pf.isVisible() ? pf.getText() : tf.getText();
             String actualPass = context.getSessionPassword() != null ? context.getSessionPassword() : "";
             
             if (enteredPass.isEmpty()) {
@@ -77,22 +347,38 @@ public class MobileAppActivationTabView {
             }
             
             if (!enteredPass.equals(actualPass)) {
-                setStatusError(statusLbl, "Your current password is incorrect");
+                setStatusError(statusLbl, "Your current password is incorrect.");
                 return;
             }
 
             submitBtn.setDisable(true);
-            submitBtn.setText("Submitting...");
+            submitBtn.setText("Activating Access...");
+            submitBtn.setStyle("-fx-background-color: -color-border; -fx-text-fill: -color-text-muted; -fx-font-size: 12px; -fx-font-weight: bold; -fx-padding: 10 20; -fx-background-radius: 8;");
+            progressBar.setVisible(true);
+            
             new Thread(() -> {
                 String msg = context.portalRepository().generateAppPassword(enteredPass);
-                javafx.application.Platform.runLater(() -> {
+                Platform.runLater(() -> {
                     submitBtn.setDisable(false);
-                    submitBtn.setText("Submit");
-                    if (msg.toLowerCase().contains("success") || msg.toLowerCase().contains("activated")) {
-                        setStatusSuccess(statusLbl, msg);
-                    } else if (msg.contains("completed") || msg.contains("no explicit message")) {
-                        // Fallback in case extractPortalMessage misses the success alert
-                        setStatusSuccess(statusLbl, "Student App is Activated. Use Same Password for Student Portal and App login.");
+                    submitBtn.setText("Activate Mobile Access");
+                    submitBtn.setStyle(activeBtnStyle);
+                    progressBar.setVisible(false);
+                    
+                    if (msg.toLowerCase().contains("success") || msg.toLowerCase().contains("activated") 
+                            || msg.contains("completed") || msg.contains("no explicit message")) {
+                        
+                        String regNo = context.getSessionRegistration();
+                        java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userNodeForPackage(MobileAppActivationTabView.class);
+                        prefs.putBoolean("activated_" + regNo, true);
+                        String todayStr = LocalDate.now().format(DateTimeFormatter.ofPattern("MMM dd, yyyy"));
+                        prefs.put("activation_date_" + regNo, todayStr);
+                        
+                        showActivatedStatus(regNo, todayStr);
+                        
+                        String successMsg = (msg.contains("completed") || msg.contains("no explicit message")) 
+                                ? "Student App is Activated. Use Same Password for Student Portal and App login." 
+                                : msg;
+                        setStatusSuccess(statusLbl, successMsg);
                     } else {
                         setStatusError(statusLbl, msg);
                     }
@@ -100,44 +386,362 @@ public class MobileAppActivationTabView {
             }).start();
         });
 
-        root.getChildren().addAll(title, inputBox, submitBtn, statusLbl, instructions);
+        // Responsive width triggers
+        bodySplit.widthProperty().addListener((obs, oldVal, newVal) -> {
+            boolean isNarrow = newVal.doubleValue() < 750;
+            boolean isSideBySide = bodySplit.getChildren().contains(rightCol);
+            
+            if (isNarrow && isSideBySide) {
+                Platform.runLater(() -> {
+                    if (bodySplit.getChildren().contains(rightCol)) {
+                        bodySplit.getChildren().remove(rightCol);
+                        if (!root.getChildren().contains(rightCol)) {
+                            // Insert rightCol right after bodySplit in the root VBox layout
+                            int index = root.getChildren().indexOf(bodySplit);
+                            root.getChildren().add(index + 1, rightCol);
+                        }
+                        rightCol.setMaxWidth(Double.MAX_VALUE);
+                        updateStepsLayout(true);
+                    }
+                });
+            } else if (!isNarrow && !isSideBySide) {
+                Platform.runLater(() -> {
+                    if (root.getChildren().contains(rightCol)) {
+                        root.getChildren().remove(rightCol);
+                        if (!bodySplit.getChildren().contains(rightCol)) {
+                            bodySplit.getChildren().add(rightCol);
+                        }
+                        rightCol.setMaxWidth(350);
+                        updateStepsLayout(false);
+                    }
+                });
+            }
+        });
+    }
+
+    private HBox createFeatureBadge(String text) {
+        HBox badge = new HBox(6);
+        badge.setAlignment(Pos.CENTER_LEFT);
+        badge.setPadding(new Insets(3, 8, 3, 8));
+        badge.setStyle("-fx-background-color: rgba(20, 184, 166, 0.04);"
+                + "-fx-border-color: rgba(20, 184, 166, 0.15);-fx-border-width: 1;"
+                + "-fx-border-radius: 10;-fx-background-radius: 10;");
+        
+        Label check = new Label("✓");
+        check.setStyle("-fx-text-fill: -color-accent; -fx-font-weight: bold; -fx-font-size: 10px;");
+        
+        Label lbl = new Label(text);
+        lbl.setStyle("-fx-text-fill: -color-text-muted; -fx-font-weight: 600; -fx-font-size: 9.5px;");
+        
+        badge.getChildren().addAll(check, lbl);
+        return badge;
+    }
+
+    private VBox createStepCardStyle(String stepNum, String title, String emoji, String state) {
+        VBox card = new VBox(6);
+        card.setPadding(new Insets(12));
+        
+        HBox top = new HBox();
+        top.setAlignment(Pos.CENTER_LEFT);
+        
+        Label step = new Label(stepNum.toUpperCase());
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        Label icon = new Label(emoji);
+        icon.setStyle("-fx-font-size: 14px;");
+        
+        Label lbl = new Label(title);
+        lbl.setStyle("-fx-font-size: 11px; -fx-font-weight: bold;");
+        lbl.setWrapText(true);
+        
+        top.getChildren().addAll(step, spacer, icon);
+        card.getChildren().addAll(top, lbl);
+        
+        if ("completed".equals(state)) {
+            card.setStyle("-fx-background-color: rgba(16, 185, 129, 0.03); -fx-border-color: rgba(16, 185, 129, 0.25); -fx-border-width: 1; -fx-border-radius: 8; -fx-background-radius: 8;");
+            step.setStyle("-fx-font-size: 9px; -fx-font-weight: 800; -fx-text-fill: #10B981; -fx-letter-spacing: 0.5px;");
+            lbl.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: -color-text-main;");
+            step.setText("✓ " + stepNum.toUpperCase());
+        } else if ("active_highlight".equals(state)) {
+            card.setStyle("-fx-background-color: -color-bg-elevated; -fx-border-color: -color-accent; -fx-border-width: 1.5; -fx-border-radius: 8; -fx-background-radius: 8;"
+                    + "-fx-effect: dropshadow(three-pass-box, rgba(20, 184, 166, 0.15), 10, 0, 0, 3);");
+            step.setStyle("-fx-font-size: 9px; -fx-font-weight: 800; -fx-text-fill: -color-accent; -fx-letter-spacing: 0.5px;");
+            lbl.setStyle("-fx-font-size: 11px; -fx-font-weight: 800; -fx-text-fill: -color-text-main;");
+            step.setText("▶ " + stepNum.toUpperCase());
+        } else if ("active".equals(state)) {
+            card.setStyle("-fx-background-color: -color-bg-elevated; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-radius: 8;");
+            step.setStyle("-fx-font-size: 9px; -fx-font-weight: 800; -fx-text-fill: -color-accent; -fx-letter-spacing: 0.5px;");
+            lbl.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: -color-text-main;");
+        } else { // muted
+            card.setStyle("-fx-background-color: -color-bg-card; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-radius: 8; -fx-opacity: 0.55;");
+            step.setStyle("-fx-font-size: 9px; -fx-font-weight: 800; -fx-text-fill: -color-text-muted; -fx-letter-spacing: 0.5px;");
+            lbl.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: -color-text-muted;");
+        }
+
+        card.setOnMouseEntered(e -> {
+            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), card);
+            tt.setToY(-2);
+            tt.play();
+            if ("active_highlight".equals(state)) {
+                card.setStyle("-fx-background-color: -color-bg-elevated; -fx-border-color: -color-accent; -fx-border-width: 1.5; -fx-border-radius: 8; -fx-background-radius: 8;"
+                        + "-fx-effect: dropshadow(three-pass-box, rgba(20, 184, 166, 0.25), 12, 0, 0, 4);");
+            } else if ("completed".equals(state)) {
+                card.setStyle("-fx-background-color: rgba(16, 185, 129, 0.05); -fx-border-color: rgba(16, 185, 129, 0.35); -fx-border-width: 1; -fx-border-radius: 8; -fx-background-radius: 8;"
+                        + "-fx-effect: dropshadow(three-pass-box, rgba(16, 185, 129, 0.08), 8, 0, 0, 2);");
+            } else if ("active".equals(state)) {
+                card.setStyle("-fx-background-color: -color-bg-elevated; -fx-border-color: -color-accent; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-radius: 8;"
+                        + "-fx-effect: dropshadow(three-pass-box, rgba(20, 184, 166, 0.08), 8, 0, 0, 2);");
+            }
+        });
+        card.setOnMouseExited(e -> {
+            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), card);
+            tt.setToY(0);
+            tt.play();
+            if ("completed".equals(state)) {
+                card.setStyle("-fx-background-color: rgba(16, 185, 129, 0.03); -fx-border-color: rgba(16, 185, 129, 0.25); -fx-border-width: 1; -fx-border-radius: 8; -fx-background-radius: 8;");
+            } else if ("active_highlight".equals(state)) {
+                card.setStyle("-fx-background-color: -color-bg-elevated; -fx-border-color: -color-accent; -fx-border-width: 1.5; -fx-border-radius: 8; -fx-background-radius: 8;"
+                        + "-fx-effect: dropshadow(three-pass-box, rgba(20, 184, 166, 0.15), 10, 0, 0, 3);");
+            } else if ("active".equals(state)) {
+                card.setStyle("-fx-background-color: -color-bg-elevated; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-radius: 8;");
+            }
+        });
+        
+        return card;
+    }
+
+    private void rebuildStepCards(boolean isActivated) {
+        stepCards.clear();
+        
+        // Step 1: Download mobile app
+        stepCards.add(createStepCardStyle("Step 1", "Download mobile app", "📥", 
+            isActivated ? "completed" : "active"));
+            
+        // Step 2: Activate app access
+        stepCards.add(createStepCardStyle("Step 2", "Activate app access", "⚡", 
+            isActivated ? "completed" : "active_highlight"));
+            
+        // Step 3: Login via credentials
+        stepCards.add(createStepCardStyle("Step 3", "Login via credentials", "🔑", 
+            isActivated ? "active_highlight" : "muted"));
+            
+        // Step 4: Access portal services
+        stepCards.add(createStepCardStyle("Step 4", "Access portal services", "✨", 
+            isActivated ? "active" : "muted"));
+            
+        updateStepsLayout(this.isLayoutNarrow);
+    }
+
+    private void updateStepsLayout(boolean isNarrow) {
+        this.isLayoutNarrow = isNarrow;
+        stepsContainer.getChildren().clear();
+        if (isNarrow) {
+            VBox vbox = new VBox(10);
+            for (VBox card : stepCards) {
+                vbox.getChildren().add(card);
+                VBox.setVgrow(card, Priority.ALWAYS);
+            }
+            stepsContainer.getChildren().add(vbox);
+        } else {
+            HBox hbox = new HBox(12);
+            for (VBox card : stepCards) {
+                hbox.getChildren().add(card);
+                HBox.setHgrow(card, Priority.ALWAYS);
+            }
+            stepsContainer.getChildren().add(hbox);
+        }
+    }
+
+    // ==================== Status Control ====================
+
+    private void showActivatedStatus(String regNo, String dateStr) {
+        statusCardContainer.getChildren().clear();
+        
+        HBox statusHeader = new HBox(8);
+        statusHeader.setAlignment(Pos.CENTER_LEFT);
+        Label title = new Label("App Connection Status");
+        title.setStyle("-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -color-text-main;");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        Label badge = new Label("🟢 ACTIVE");
+        badge.setStyle("-fx-text-fill: #10B981; -fx-font-size: 10px; -fx-font-weight: 800; -fx-background-color: rgba(16, 185, 129, 0.08); -fx-padding: 3 8; -fx-background-radius: 10; -fx-border-color: rgba(16, 185, 129, 0.2); -fx-border-width: 1; -fx-border-radius: 10;");
+        statusHeader.getChildren().addAll(title, spacer, badge);
+        
+        GridPane grid = new GridPane();
+        grid.setHgap(16);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(6, 0, 0, 0));
+        
+        grid.add(createStatusField("Registration"), 0, 0);
+        grid.add(createStatusValue(regNo), 1, 0);
+        
+        grid.add(createStatusField("Activated On"), 0, 1);
+        grid.add(createStatusValue(dateStr), 1, 1);
+        
+        grid.add(createStatusField("App Services"), 0, 2);
+        grid.add(createStatusValue("Enabled / Verified"), 1, 2);
+        
+        Separator sep = new Separator();
+        sep.setStyle("-fx-background-color: -color-border; -fx-opacity: 0.25;");
+        
+        statusCardContainer.getChildren().addAll(statusHeader, sep, grid);
+        rebuildStepCards(true);
+    }
+    
+    private void showNotActivatedStatus() {
+        statusCardContainer.getChildren().clear();
+        
+        HBox statusHeader = new HBox(8);
+        statusHeader.setAlignment(Pos.CENTER_LEFT);
+        Label title = new Label("App Connection Status");
+        title.setStyle("-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -color-text-main;");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        Label badge = new Label("🔴 INACTIVE");
+        badge.setStyle("-fx-text-fill: #EF4444; -fx-font-size: 10px; -fx-font-weight: 800; -fx-background-color: rgba(239, 68, 68, 0.08); -fx-padding: 3 8; -fx-background-radius: 10; -fx-border-color: rgba(239, 68, 68, 0.2); -fx-border-width: 1; -fx-border-radius: 10;");
+        statusHeader.getChildren().addAll(title, spacer, badge);
+        
+        Label msg = new Label("Activate your account to access mobile services.");
+        msg.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500;");
+        msg.setWrapText(true);
+        
+        Separator sep = new Separator();
+        sep.setStyle("-fx-background-color: -color-border; -fx-opacity: 0.25;");
+        
+        statusCardContainer.getChildren().addAll(statusHeader, sep, msg);
+        rebuildStepCards(false);
+    }
+
+    private Label createStatusField(String text) {
+        Label l = new Label(text);
+        l.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500;");
+        return l;
+    }
+
+    private Label createStatusValue(String text) {
+        Label l = new Label(text);
+        l.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-main; -fx-font-weight: 800;");
+        return l;
+    }
+
+    private void loadStatus() {
+        new Thread(() -> {
+            try {
+                String html = context.dataCacheService().getCachedHtml("GenerateAppPassword.aspx").orElse(null);
+                if (html == null && context.isOnline()) {
+                    html = context.fetchAndCacheHtml("GenerateAppPassword.aspx");
+                }
+                
+                final String finalHtml = html;
+                Platform.runLater(() -> checkAndSetActivationStatus(finalHtml));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void checkAndSetActivationStatus(String html) {
+        String regNo = context.getSessionRegistration();
+        java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userNodeForPackage(MobileAppActivationTabView.class);
+        String activeKey = "activated_" + regNo;
+        String dateKey = "activation_date_" + regNo;
+        
+        boolean portalIndicatedActive = false;
+        String playStoreUrl = "https://play.google.com/store/apps/details?id=edupk.cuiatd.cuonlinestudentportal";
+        
+        if (html != null && !html.isBlank()) {
+            Document doc = Jsoup.parse(html);
+            Element msg = doc.select("span[id*=lblMsg], span[id*=lblMessage], span[id*=lblError], div.alert").first();
+            if (msg != null) {
+                String txt = msg.text().toLowerCase();
+                if (txt.contains("activated") || txt.contains("already active") || txt.contains("success")) {
+                    portalIndicatedActive = true;
+                }
+            }
+            String bodyText = doc.body().text().toLowerCase();
+            if (bodyText.contains("app is already activated") || bodyText.contains("your mobile application is activated") || bodyText.contains("app is activated")) {
+                portalIndicatedActive = true;
+            }
+            
+            for (Element a : doc.select("a[href*=play.google.com]")) {
+                String href = a.attr("href");
+                if (!href.isEmpty()) {
+                    playStoreUrl = href;
+                    break;
+                }
+            }
+        }
+        
+        final String finalPlayStoreUrl = playStoreUrl;
+        Platform.runLater(() -> {
+            if (playStoreLinkBtn != null) {
+                playStoreLinkBtn.setOnAction(e -> launchUrl(finalPlayStoreUrl));
+            }
+        });
+
+        boolean currentlyActivated = portalIndicatedActive || prefs.getBoolean(activeKey, false);
+        
+        if (currentlyActivated) {
+            prefs.putBoolean(activeKey, true);
+            String savedDate = prefs.get(dateKey, null);
+            if (savedDate == null) {
+                savedDate = LocalDate.now().format(DateTimeFormatter.ofPattern("MMM dd, yyyy"));
+                prefs.put(dateKey, savedDate);
+            }
+            showActivatedStatus(regNo, savedDate);
+        } else {
+            showNotActivatedStatus();
+        }
+    }
+
+    private void launchUrl(String url) {
+        try {
+            java.awt.Desktop.getDesktop().browse(new java.net.URI(url));
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
     }
 
     private void setStatusSuccess(Label lbl, String text) {
         lbl.setText(text);
-        lbl.getStyleClass().removeAll("status-error", "status-success");
-        lbl.getStyleClass().add("status-success");
+        lbl.setVisible(true);
+        lbl.setManaged(true);
+        lbl.setStyle("-fx-background-color: rgba(16, 185, 129, 0.08); -fx-border-color: #10B981; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-radius: 8; -fx-padding: 8 12; -fx-text-fill: #10B981; -fx-font-size: 11px; -fx-font-weight: bold;");
     }
 
     private void setStatusError(Label lbl, String text) {
         lbl.setText(text);
-        lbl.getStyleClass().removeAll("status-error", "status-success");
-        lbl.getStyleClass().add("status-error");
+        lbl.setVisible(true);
+        lbl.setManaged(true);
+        lbl.setStyle("-fx-background-color: rgba(239, 68, 68, 0.08); -fx-border-color: #EF4444; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-radius: 8; -fx-padding: 8 12; -fx-text-fill: #EF4444; -fx-font-size: 11px; -fx-font-weight: bold;");
+    }
+    
+    private void clearStatus(Label lbl) {
+        lbl.setText("");
+        lbl.setVisible(false);
+        lbl.setManaged(false);
     }
 
     private void onConnectivityChanged(boolean isOnline) {
-        javafx.application.Platform.runLater(() -> {
+        Platform.runLater(() -> {
             if (submitBtn != null) {
                 if (isOnline) {
                     submitBtn.setDisable(false);
-                    if (submitBtn.getText().startsWith("🔒 ")) {
-                        submitBtn.setText(submitBtn.getText().substring(2));
-                    }
+                    submitBtn.setText("Activate Mobile Access");
+                    submitBtn.setStyle("-fx-background-color: -color-accent; -fx-text-fill: white; -fx-font-size: 12px; -fx-font-weight: bold; -fx-padding: 10 20; -fx-background-radius: 8; -fx-cursor: hand;");
                     submitBtn.setTooltip(null);
                 } else {
                     submitBtn.setDisable(true);
-                    if (!submitBtn.getText().startsWith("🔒 ")) {
-                        submitBtn.setText("🔒 " + submitBtn.getText());
-                    }
-                    submitBtn.setTooltip(new javafx.scene.control.Tooltip("This feature is disabled in offline mode."));
+                    submitBtn.setText("🔒 Offline Mode");
+                    submitBtn.setStyle("-fx-background-color: -color-border; -fx-text-fill: -color-text-muted; -fx-font-size: 12px; -fx-font-weight: bold; -fx-padding: 10 20; -fx-background-radius: 8;");
+                    submitBtn.setTooltip(new Tooltip("This feature is disabled in offline mode."));
                 }
             }
         });
     }
 
-    public javafx.scene.control.ScrollPane getRoot() {
-        // RESIZING FIX: Wrap the app activation screen inside a ScrollPane so inputs and lists scroll nicely under low-height views
-        javafx.scene.control.ScrollPane sp = new javafx.scene.control.ScrollPane(root);
+    public ScrollPane getRoot() {
+        ScrollPane sp = new ScrollPane(root);
         sp.setFitToWidth(true);
         sp.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
         return sp;

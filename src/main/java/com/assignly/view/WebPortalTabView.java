@@ -77,13 +77,13 @@ public class WebPortalTabView {
 
         syncSnapshot.setOnAction(e -> {
             if (engine.getLocation().toLowerCase().contains("login.aspx")) {
-                context.showToastError("Please log in before syncing a snapshot.");
+                context.notificationService().showError("Please log in before syncing a snapshot.");
                 return;
             }
             try {
                 PortalSnapshot snapshot = context.portalService().captureSnapshot(engine);
                 context.dataCacheService().saveSnapshot(snapshot);
-                context.showToastSuccess("Snapshot captured and cached successfully!");
+                context.notificationService().showSuccess("Snapshot captured and cached successfully!");
 
                 UserPreferences currentPrefs = context.preferencesService().loadPreferences();
                 if (currentPrefs.isNotificationsEnabled() && snapshot.getNotifications() != null && !snapshot.getNotifications().isEmpty()) {
@@ -110,7 +110,7 @@ public class WebPortalTabView {
                     });
                 }
             } catch (Exception ex) {
-                context.showToastError("Failed to sync snapshot: " + ex.getMessage());
+                context.notificationService().showError("Failed to sync snapshot: " + ex.getMessage());
             }
         });
 
