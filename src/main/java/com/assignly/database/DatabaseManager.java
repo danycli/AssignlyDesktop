@@ -54,9 +54,20 @@ public class DatabaseManager {
                     auto_login INTEGER NOT NULL DEFAULT 1,
                     notifications_enabled INTEGER NOT NULL DEFAULT 1,
                     zoom_level REAL NOT NULL DEFAULT 1.0,
-                    dark_overlay INTEGER NOT NULL DEFAULT 0
+                    dark_overlay INTEGER NOT NULL DEFAULT 0,
+                    auto_check_updates INTEGER NOT NULL DEFAULT 1,
+                    notify_prereleases INTEGER NOT NULL DEFAULT 0,
+                    open_website_first INTEGER NOT NULL DEFAULT 1,
+                    dismissed_version TEXT
                 )
                 """);
+            
+            // Migrations for existing local databases
+            try { statement.executeUpdate("ALTER TABLE preferences ADD COLUMN auto_check_updates INTEGER NOT NULL DEFAULT 1"); } catch (SQLException ignored) {}
+            try { statement.executeUpdate("ALTER TABLE preferences ADD COLUMN notify_prereleases INTEGER NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
+            try { statement.executeUpdate("ALTER TABLE preferences ADD COLUMN open_website_first INTEGER NOT NULL DEFAULT 1"); } catch (SQLException ignored) {}
+            try { statement.executeUpdate("ALTER TABLE preferences ADD COLUMN dismissed_version TEXT"); } catch (SQLException ignored) {}
+
             statement.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS notifications (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,

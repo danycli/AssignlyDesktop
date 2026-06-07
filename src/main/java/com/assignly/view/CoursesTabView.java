@@ -378,7 +378,20 @@ public class CoursesTabView {
         Label classBadge = new Label(c.className.isEmpty() || c.className.equalsIgnoreCase("N/A") ? "Class: N/A" : "Class: " + c.className);
         classBadge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: #004643; -fx-background-color: rgba(0, 70, 67, 0.08); -fx-padding: 2 8; -fx-background-radius: 8;");
         
-        topRow.getChildren().addAll(code, spacer, classBadge);
+        // Attendance Badge at top right
+        String attStrBadge = c.percentage != null && !c.percentage.isEmpty() ? c.percentage : "N/A";
+        String attBg = "#f1f5f9";
+        String attFg = "#64748b";
+        try {
+            double v = Double.parseDouble(attStrBadge.replace("%", "").trim());
+            if (v < 75.0) { attBg = "#fee2e2"; attFg = "#dc2626"; }
+            else if (v < 85.0) { attBg = "#fef3c7"; attFg = "#d97706"; }
+            else { attBg = "#d1fae5"; attFg = "#059669"; }
+        } catch (Exception ignored) {}
+        Label attBadge = new Label("Att: " + attStrBadge);
+        attBadge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: " + attFg + "; -fx-background-color: " + attBg + "; -fx-padding: 2 8; -fx-background-radius: 8;");
+
+        topRow.getChildren().addAll(code, spacer, classBadge, attBadge);
 
         // Title and Teacher
         Label title = new Label(c.title);
@@ -413,8 +426,14 @@ public class CoursesTabView {
         boolean hasLab = c.labPercentage != null && !c.labPercentage.equalsIgnoreCase("N/A") && !c.labPercentage.isBlank();
         boolean hasTheory = c.theoryPercentage != null && !c.theoryPercentage.equalsIgnoreCase("N/A") && !c.theoryPercentage.isBlank();
         
-        if (hasLab) {
-            attStr = String.format("Theory: %s | Lab: %s", c.theoryPercentage, c.labPercentage);
+        if (hasLab && c.percentage != null && !c.percentage.isEmpty()) {
+            attStr = c.percentage + " (Avg)";
+            try {
+                double val = Double.parseDouble(c.percentage.replace("%", "").trim());
+                if (val < 75.0) attColor = "#dc2626";
+                else if (val < 85.0) attColor = "#d97706";
+                else attColor = "#004643";
+            } catch (Exception ignored) {}
         } else if (hasTheory) {
             attStr = c.theoryPercentage;
             try {
@@ -1431,10 +1450,30 @@ public class CoursesTabView {
                 cs.theoryPercentage = thyIdx >= 0 && thyIdx < cells.size() ? cells.get(thyIdx).text().trim() : "N/A";
                 cs.labPercentage = labIdx >= 0 && labIdx < cells.size() ? cells.get(labIdx).text().trim() : "N/A";
                 
-                if (pctIdx >= 0 && pctIdx < cells.size()) {
+                boolean hasTheory = cs.theoryPercentage != null && !cs.theoryPercentage.equalsIgnoreCase("N/A") && !cs.theoryPercentage.isBlank();
+                boolean hasLab = cs.labPercentage != null && !cs.labPercentage.equalsIgnoreCase("N/A") && !cs.labPercentage.isBlank();
+                
+                if (hasTheory && hasLab) {
+                    try {
+                        double thy = Double.parseDouble(cs.theoryPercentage.replace("%", "").trim());
+                        double lab = Double.parseDouble(cs.labPercentage.replace("%", "").trim());
+                        double avg = (thy + lab) / 2.0;
+                        cs.percentage = String.format("%.0f%%", avg);
+                    } catch (Exception e) {
+                        if (pctIdx >= 0 && pctIdx < cells.size()) {
+                            cs.percentage = cells.get(pctIdx).text().trim();
+                        } else {
+                            cs.percentage = cs.theoryPercentage;
+                        }
+                    }
+                } else if (pctIdx >= 0 && pctIdx < cells.size()) {
                     cs.percentage = cells.get(pctIdx).text().trim();
-                } else {
+                } else if (hasTheory) {
                     cs.percentage = cs.theoryPercentage;
+                } else if (hasLab) {
+                    cs.percentage = cs.labPercentage;
+                } else {
+                    cs.percentage = "N/A";
                 }
 
                 if (cs.code.isEmpty() && !cs.title.isEmpty() && cs.title.contains("\n")) {

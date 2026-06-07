@@ -126,13 +126,24 @@ public class ExamCouponTabView {
 
                 Document selectDoc = Jsoup.parse(selectHtml);
 
-                // Step 2: Check if the "Click Here To Print Exam Entry Coupon" text is present
+                // Step 2: Check if the "Click Here To Print" link is present
                 boolean isCouponAvailable = false;
-                for (Element link : selectDoc.select("a, span, div, b, strong, td")) {
+                for (Element link : selectDoc.select("a")) {
                     String linkText = link.text().trim().toLowerCase();
-                    if (linkText.contains("print") && linkText.contains("exam") && linkText.contains("coupon")) {
+                    if (linkText.contains("print") && linkText.contains("coupon")) {
                         isCouponAvailable = true;
                         break;
+                    }
+                }
+                
+                // Fallback check if it's a button or specific element
+                if (!isCouponAvailable) {
+                    for (Element el : selectDoc.select("span, b, strong, td")) {
+                        String text = el.text().trim().toLowerCase();
+                        if (text.contains("click here to print exam entry coupon")) {
+                            isCouponAvailable = true;
+                            break;
+                        }
                     }
                 }
 
@@ -1368,9 +1379,7 @@ public class ExamCouponTabView {
         Label noCouponLabel = new Label("Exam Entry Coupon Not Available");
         noCouponLabel.setStyle("-fx-font-size:14px;-fx-font-weight:bold;-fx-text-fill: -color-text-muted;");
 
-        Label noCouponDesc = new Label("The exam entry coupon is not currently available. "
-                + "This may be due to pending fee payments, missing documents, "
-                + "or the coupon not being released yet by the exam section.");
+        Label noCouponDesc = new Label("No coupons available at the moment.");
         noCouponDesc.setStyle("-fx-font-size:12px;-fx-text-fill: -color-text-muted;-fx-text-alignment:center;");
         noCouponDesc.setWrapText(true);
 

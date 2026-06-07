@@ -8,6 +8,7 @@ import com.assignly.service.PortalRepository;
 import com.assignly.service.PortalService;
 import com.assignly.service.NotificationService;
 import com.assignly.service.PreferencesService;
+import com.assignly.service.UpdateService;
 import com.assignly.view.*;
 import javafx.animation.FadeTransition;
 import javafx.animation.ParallelTransition;
@@ -74,6 +75,7 @@ public class AppContext {
     private StackPane contentArea;
     private StackPane loadingOverlay;
     private final NotificationService notificationService;
+    private final UpdateService updateService;
 
     // QoL Features
     private TextField searchField;
@@ -115,6 +117,10 @@ public class AppContext {
     public boolean isOnline() {
         return isOnline;
     }
+    
+    public UpdateService updateService() {
+        return updateService;
+    }
 
     
     public AppContext(Stage stage,
@@ -130,6 +136,7 @@ public class AppContext {
         this.dataCacheService = dataCacheService;
         this.portalService = portalService;
         this.notificationService = new NotificationService(this);
+        this.updateService = new UpdateService(this);
         this.portalRepository = new PortalRepository();
         this.portalRepository.setOnSessionExpiredCallback(() -> {
             javafx.application.Platform.runLater(() -> {
@@ -330,6 +337,7 @@ public class AppContext {
         
         notificationService.showSuccess("Successfully logged in");
         setupSearch();
+        updateService.checkForUpdatesSilently((StackPane) stage.getScene().getRoot());
         
         // Register Ctrl+K
         stage.getScene().addEventFilter(KeyEvent.KEY_PRESSED, e -> {

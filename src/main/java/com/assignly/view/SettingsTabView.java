@@ -46,13 +46,15 @@ public class SettingsTabView {
         Button btnProfile = createSubTabBtn("👤 Profile");
         Button btnPassword = createSubTabBtn("🔑 Change Password");
         Button btnHistory = createSubTabBtn("📜 Login History");
+        Button btnUpdates = createSubTabBtn("☁ Updates");
 
-        sidebar.getChildren().addAll(btnGeneral, btnProfile, btnPassword, btnHistory);
+        sidebar.getChildren().addAll(btnGeneral, btnProfile, btnPassword, btnHistory, btnUpdates);
 
         btnGeneral.setOnAction(e -> { setActive(sidebar, btnGeneral); loadGeneral(); });
         btnProfile.setOnAction(e -> { setActive(sidebar, btnProfile); loadProfile(); });
         btnPassword.setOnAction(e -> { setActive(sidebar, btnPassword); loadPassword(); });
         btnHistory.setOnAction(e -> { setActive(sidebar, btnHistory); loadHistory(); });
+        btnUpdates.setOnAction(e -> { setActive(sidebar, btnUpdates); loadUpdates(); });
 
         root.setLeft(sidebar);
         root.setCenter(contentArea);
@@ -557,6 +559,62 @@ public class SettingsTabView {
                 }
             });
         }).start();
+    }
+
+    // --- UPDATES TAB ---
+    private void loadUpdates() {
+        VBox content = new VBox(24);
+        content.setFillWidth(true);
+
+        Label subTitle = new Label("Manage application updates");
+        subTitle.setStyle("-fx-font-size:13px;-fx-text-fill: -color-text-muted;-fx-font-weight:600;");
+
+        VBox card = createBaseCard("Update Preferences", "🚀");
+        UserPreferences prefs = context.preferencesService().loadPreferences();
+
+        CheckBox autoCheck = new CheckBox("Automatically check for updates on startup");
+        autoCheck.setStyle("-fx-font-size:13px;-fx-text-fill: -color-text-main;");
+        autoCheck.setSelected(prefs.isAutoCheckUpdates());
+        autoCheck.setOnAction(e -> {
+            UserPreferences p = context.preferencesService().loadPreferences();
+            p.setAutoCheckUpdates(autoCheck.isSelected());
+            context.preferencesService().savePreferences(p);
+        });
+
+        CheckBox preReleases = new CheckBox("Notify me about pre-releases (Beta versions)");
+        preReleases.setStyle("-fx-font-size:13px;-fx-text-fill: -color-text-main;");
+        preReleases.setSelected(prefs.isNotifyPreReleases());
+        preReleases.setOnAction(e -> {
+            UserPreferences p = context.preferencesService().loadPreferences();
+            p.setNotifyPreReleases(preReleases.isSelected());
+            context.preferencesService().savePreferences(p);
+        });
+
+        CheckBox openWeb = new CheckBox("Prioritize website download link over GitHub releases");
+        openWeb.setStyle("-fx-font-size:13px;-fx-text-fill: -color-text-main;");
+        openWeb.setSelected(prefs.isOpenWebsiteFirst());
+        openWeb.setOnAction(e -> {
+            UserPreferences p = context.preferencesService().loadPreferences();
+            p.setOpenWebsiteFirst(openWeb.isSelected());
+            context.preferencesService().savePreferences(p);
+        });
+
+        Button checkNow = new Button("Check For Updates Now");
+        checkNow.getStyleClass().add("btn-primary");
+        checkNow.setStyle("-fx-background-color: -color-accent; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 13px; -fx-padding: 8 16; -fx-background-radius: 6; -fx-cursor: hand;");
+        checkNow.setOnAction(e -> {
+            StackPane root = (StackPane) context.stage().getScene().getRoot();
+            context.updateService().checkForUpdatesManually(root);
+        });
+
+        card.getChildren().addAll(autoCheck, preReleases, openWeb, checkNow);
+
+        content.getChildren().addAll(subTitle, card);
+        
+        ScrollPane sp = new ScrollPane(content);
+        sp.setFitToWidth(true);
+        sp.setStyle("-fx-background-color:transparent;-fx-background:transparent;");
+        contentArea.getChildren().setAll(sp);
     }
 
     private void applyOfflineStateIfOffline(Button btn, String originalText, String prefix) {
