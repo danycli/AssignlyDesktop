@@ -48,6 +48,7 @@ public class TimetableTabView {
     private Button btnToday;
     private Button btnWeek;
     private Button btnList;
+    private ToggleButton btnEmptyDays;
 
     public static class ClassSession {
         public String day = "";
@@ -195,7 +196,7 @@ public class TimetableTabView {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         
-        ToggleButton btnEmptyDays = new ToggleButton("Show Empty Days");
+        btnEmptyDays = new ToggleButton("Show Empty Days");
         btnEmptyDays.setSelected(showEmptyDays);
         btnEmptyDays.setStyle(
             "-fx-background-color: " + (showEmptyDays ? "-color-accent" : "-color-bg-card") + ";" +
@@ -293,6 +294,11 @@ public class TimetableTabView {
         btnToday.setStyle(mode.equals("today") ? ACTIVE_TAB_STYLE : INACTIVE_TAB_STYLE);
         btnWeek.setStyle(mode.equals("week") ? ACTIVE_TAB_STYLE : INACTIVE_TAB_STYLE);
         btnList.setStyle(mode.equals("list") ? ACTIVE_TAB_STYLE : INACTIVE_TAB_STYLE);
+        
+        if (btnEmptyDays != null) {
+            btnEmptyDays.setVisible(!mode.equals("today"));
+            btnEmptyDays.setManaged(!mode.equals("today"));
+        }
         
         updateSummaryStatsBar();
         

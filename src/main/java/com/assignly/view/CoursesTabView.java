@@ -1055,6 +1055,8 @@ public class CoursesTabView {
         });
 
         CheckBox showPresent = new CheckBox("P");
+        CheckBox showAbsent = new CheckBox("A");
+
         showPresent.setTooltip(new Tooltip("Show Present Lectures"));
         showPresent.setStyle("-fx-font-size: 11px;");
         showPresent.setSelected(filterPresentOnly);
@@ -1062,11 +1064,11 @@ public class CoursesTabView {
             filterPresentOnly = showPresent.isSelected();
             if (filterPresentOnly) {
                 filterAbsentOnly = false;
+                showAbsent.setSelected(false);
             }
             refreshTimeline(tab, lectures);
         });
 
-        CheckBox showAbsent = new CheckBox("A");
         showAbsent.setTooltip(new Tooltip("Show Absent Lectures"));
         showAbsent.setStyle("-fx-font-size: 11px;");
         showAbsent.setSelected(filterAbsentOnly);
@@ -1074,6 +1076,7 @@ public class CoursesTabView {
             filterAbsentOnly = showAbsent.isSelected();
             if (filterAbsentOnly) {
                 filterPresentOnly = false;
+                showPresent.setSelected(false);
             }
             refreshTimeline(tab, lectures);
         });
@@ -1154,8 +1157,8 @@ public class CoursesTabView {
             return;
         }
 
-        // Reverse to show latest lecture at top
-        Collections.reverse(filtered);
+        // The portal already returns lectures in new-to-old order (latest at top).
+        // No need to reverse them here.
 
         for (int i = 0; i < filtered.size(); i++) {
             LectureEntry l = filtered.get(i);
@@ -1241,12 +1244,14 @@ public class CoursesTabView {
         VBox quizSection = buildCategorySection("📚 Quiz Marks", categories, "Quizzes", "No quiz records available.", "-color-accent");
         VBox assignSection = buildCategorySection("📝 Assignment Marks", categories, "Assignments", "No assignment records available.", "#14b8a6");
         VBox sessSection = buildCategorySection("📊 Sessional Marks", categories, "Sessionals", "No sessional marks available.", "#f59e0b");
+        VBox midSection = buildCategorySection("⌛ Mid Term Marks", categories, "Mid Term", "No mid term marks available.", "#3b82f6");
         VBox finalSection = buildCategorySection("🏆 Final Exam Marks", categories, "Final Exam", "No final marks available.", "#8b5cf6");
 
         List<VBox> activeCards = new ArrayList<>();
         if (quizSection != null) activeCards.add(quizSection);
         if (assignSection != null) activeCards.add(assignSection);
         if (sessSection != null) activeCards.add(sessSection);
+        if (midSection != null) activeCards.add(midSection);
         if (finalSection != null) activeCards.add(finalSection);
 
         if (activeCards.isEmpty()) {
@@ -1257,7 +1262,7 @@ public class CoursesTabView {
             
             Label icon = new Label("📝");
             icon.setStyle("-fx-font-size: 24px;");
-            Label lbl = new Label("No Quiz Records Available");
+            Label lbl = new Label("No Marks Records Available");
             lbl.setStyle("-fx-font-size: 13px; -fx-text-fill: -color-text-muted; -fx-font-weight: bold;");
             emptyBox.getChildren().addAll(icon, lbl);
             
@@ -1310,7 +1315,8 @@ public class CoursesTabView {
             if (name.equals("Quizzes") && catName.contains("quiz")) match = true;
             else if (name.equals("Assignments") && catName.contains("assign")) match = true;
             else if (name.equals("Sessionals") && catName.contains("sess")) match = true;
-            else if (name.equals("Final Exam") && (catName.contains("final") || catName.contains("term"))) match = true;
+            else if (name.equals("Mid Term") && catName.contains("mid")) match = true;
+            else if (name.equals("Final Exam") && (catName.contains("final") || (catName.contains("term") && !catName.contains("mid")))) match = true;
             
             if (match) {
                 if (matched == null) {

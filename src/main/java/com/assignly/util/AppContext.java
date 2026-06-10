@@ -178,7 +178,7 @@ public class AppContext {
         box.getChildren().addAll(brand, spinner, status);
         splash.getChildren().add(box);
 
-        setScene(splash, "Assignly Desktop");
+        setScene(splash, "Assignly Desktop", 1000, 650);
 
         new Thread(() -> {
             PortalRepository.LoginResult result = portalRepository.login(reg, password);
@@ -199,20 +199,32 @@ public class AppContext {
         Optional<com.assignly.model.User> user = credentialManager.getStoredUser();
         user.ifPresent(u -> loginView.getRegistrationField().setText(u.getRegistrationNo()));
         loginView.getLoginButton().setOnAction(event -> handleLogin(loginView));
-        setScene(loginView.getRoot(), "Assignly Desktop");
+        
+        // Hide stage before mutating scene/bounds to reset Windows DWM hit-testing mapping
+        if (stage.isShowing()) {
+            stage.hide();
+        }
+        
+        setScene(loginView.getRoot(), "Assignly Desktop", 1000, 650);
 
         // Fixed-size login window: disable resizing and maximize
         stage.setMaximized(false);
-        stage.setResizable(false);
         stage.setMinWidth(1000);
         stage.setMinHeight(650);
+        stage.setMaxWidth(1000);
+        stage.setMaxHeight(650);
         stage.setWidth(1000);
         stage.setHeight(650);
+        
+        // Force layout pass and bounds synchronization
+        stage.sizeToScene();
 
         // Center on screen
         javafx.geometry.Rectangle2D screenBounds = javafx.stage.Screen.getPrimary().getVisualBounds();
-        stage.setX((screenBounds.getWidth() - stage.getWidth()) / 2);
-        stage.setY((screenBounds.getHeight() - stage.getHeight()) / 2);
+        stage.setX((screenBounds.getWidth() - 1000) / 2);
+        stage.setY((screenBounds.getHeight() - 650) / 2);
+        
+        stage.show();
     }
 
     private void handleLogin(LoginView loginView) {
@@ -318,7 +330,8 @@ public class AppContext {
         setScene(mainLayout, "Assignly Desktop");
 
         // Re-enable window resizing for the main dashboard
-        stage.setResizable(true);
+        stage.setMaxWidth(Double.MAX_VALUE);
+        stage.setMaxHeight(Double.MAX_VALUE);
 
         // Constrain minimum size and expand to dashboard dimensions
         stage.setMinWidth(1200);
@@ -1679,12 +1692,6 @@ public class AppContext {
         String iconBtnNormal = "-fx-background-color: transparent; -fx-text-fill: -color-text-muted; -fx-font-size: 14px; -fx-cursor: hand; -fx-padding: 6; -fx-background-radius: 6;";
         String iconBtnHover = "-fx-background-color: rgba(20, 184, 166, 0.08); -fx-text-fill: -color-accent; -fx-font-size: 14px; -fx-cursor: hand; -fx-padding: 6; -fx-background-radius: 6;";
 
-        Button notificationBtn = new Button("🔔");
-        notificationBtn.setStyle(iconBtnNormal);
-        notificationBtn.setOnMouseEntered(e -> notificationBtn.setStyle(iconBtnHover));
-        notificationBtn.setOnMouseExited(e -> notificationBtn.setStyle(iconBtnNormal));
-        notificationBtn.setOnAction(e -> notificationService.showInfo("No new notifications."));
-
         syncPortalBtn = new Button("🔄 Sync Portal");
         syncPortalBtn.setStyle(
             "-fx-background-color: -color-accent;" +
@@ -1705,7 +1712,7 @@ public class AppContext {
         profileGearBtn.setOnMouseExited(e -> profileGearBtn.setStyle(iconBtnNormal));
         profileGearBtn.setOnAction(e -> navigateTo("settings"));
 
-        header.getChildren().addAll(headerTitleLabel, spacer, searchBtn, syncPortalBtn, notificationBtn, profileGearBtn);
+        header.getChildren().addAll(headerTitleLabel, spacer, searchBtn, syncPortalBtn, profileGearBtn);
         return header;
     }
 
@@ -1827,17 +1834,24 @@ public class AppContext {
 
     // ---------- Scene ----------
     public void setScene(Parent contentRoot, String title) {
+        setScene(contentRoot, title, 1200, 750);
+    }
+
+    public void setScene(Parent contentRoot, String title, double width, double height) {
         contentRoot.getStyleClass().add("app-root");
 
         HBox titleBar = buildCustomTitleBar();
-        VBox wrapper = new VBox(titleBar, contentRoot);
+        // Force the title bar to render on top to prevent overlapping shapes from blocking clicks
+        titleBar.setViewOrder(-1);
+        
+        VBox mainLayout = new VBox();
+        mainLayout.getChildren().addAll(titleBar, contentRoot);
         VBox.setVgrow(contentRoot, Priority.ALWAYS);
-        wrapper.setStyle("-fx-background-color: -color-bg-main;");
 
-        StackPane root = new StackPane(wrapper);
+        StackPane root = new StackPane(mainLayout);
         notificationService.initToastLayer(root);
 
-        Scene scene = new Scene(root, 1200, 750);
+        Scene scene = new Scene(root, width, height);
         URL css = getClass().getResource("/com/assignly/styles/app.css");
         if (css != null) scene.getStylesheets().add(css.toExternalForm());
         
@@ -1908,11 +1922,9 @@ public class AppContext {
         minBtn.setOnMouseExited(e -> minBtn.setStyle(controlNormalStyle));
         minBtn.setOnMousePressed(e -> {
             minBtn.setStyle(controlPressedStyle);
-            e.consume();
         });
         minBtn.setOnMouseReleased(e -> {
             minBtn.setStyle(controlNormalStyle);
-            e.consume();
         });
         minBtn.setOnAction(e -> stage.setIconified(true));
 
@@ -1937,20 +1949,21 @@ public class AppContext {
         });
         maxBtn.setOnMousePressed(e -> {
             if (!maxBtn.isDisable()) maxBtn.setStyle(controlPressedStyle);
-            e.consume();
         });
         maxBtn.setOnMouseReleased(e -> {
             if (!maxBtn.isDisable()) maxBtn.setStyle(controlNormalStyle);
-            e.consume();
         });
         maxBtn.setOnAction(e -> {
-            if (stage.isResizable()) {
+            if (stage.isResizable() && stage.getMinWidth() != stage.getMaxWidth()) {
                 stage.setMaximized(!stage.isMaximized());
             }
         });
 
         // Bind disable status to Stage.resizableProperty().not()
-        maxBtn.disableProperty().bind(stage.resizableProperty().not());
+        maxBtn.disableProperty().bind(
+            stage.resizableProperty().not()
+            .or(stage.minWidthProperty().isEqualTo(stage.maxWidthProperty()))
+        );
         maxBtn.disableProperty().addListener((obs, oldVal, newVal) -> {
             maxBtn.setOpacity(newVal ? 0.3 : 1.0);
         });
@@ -1991,11 +2004,9 @@ public class AppContext {
         });
         closeBtn.setOnMousePressed(e -> {
             closeBtn.setStyle(closePressedStyle);
-            e.consume();
         });
         closeBtn.setOnMouseReleased(e -> {
             closeBtn.setStyle(closeNormalStyle);
-            e.consume();
         });
         closeBtn.setOnAction(e -> stage.close());
 
@@ -2012,7 +2023,7 @@ public class AppContext {
         });
 
         titleBar.setOnMouseDragged(event -> {
-            if (!stage.isMaximized()) {
+            if (!stage.isMaximized() || (stage.getMinWidth() == stage.getMaxWidth())) {
                 stage.setX(event.getScreenX() - xOffset[0]);
                 stage.setY(event.getScreenY() - yOffset[0]);
             }
@@ -2020,7 +2031,7 @@ public class AppContext {
 
         titleBar.setOnMouseClicked(event -> {
             if (event.getClickCount() == 2) {
-                if (stage.isResizable()) {
+                if (stage.isResizable() && stage.getMinWidth() != stage.getMaxWidth()) {
                     stage.setMaximized(!stage.isMaximized());
                 }
             }
@@ -2241,7 +2252,7 @@ public class AppContext {
                 double mouseY = event.getSceneY();
 
                 if (javafx.scene.input.MouseEvent.MOUSE_MOVED.equals(type)) {
-                    if (!stage.isResizable() || stage.isMaximized()) {
+                    if (!stage.isResizable() || stage.isMaximized() || stage.getMinWidth() == stage.getMaxWidth()) {
                         scene.setCursor(javafx.scene.Cursor.DEFAULT);
                         return;
                     }
@@ -2276,7 +2287,7 @@ public class AppContext {
                 } else if (javafx.scene.input.MouseEvent.MOUSE_EXITED.equals(type)) {
                     scene.setCursor(javafx.scene.Cursor.DEFAULT);
                 } else if (javafx.scene.input.MouseEvent.MOUSE_PRESSED.equals(type)) {
-                    if (!stage.isResizable() || stage.isMaximized()) return;
+                    if (!stage.isResizable() || stage.isMaximized() || stage.getMinWidth() == stage.getMaxWidth()) return;
 
                     double width = stage.getWidth();
                     double height = stage.getHeight();

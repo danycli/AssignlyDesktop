@@ -70,6 +70,8 @@ public class CoursePortalTabView {
     private String currentOriginalPageHtml;
     private final List<CourseFile> rawCourseFiles = new ArrayList<>();
     private String assignmentsSearchQuery = "";
+    private String assignSortOrder = "Date";
+    private boolean assignGridMode = true;
     private String pendingAssignmentsSearchQuery = "";
     private boolean isPrefetching = false;
 
@@ -1900,13 +1902,47 @@ private String formatFileSize(long bytes) {
             searchField.setPromptText("Search assignments by title or course...");
             HBox.setHgrow(searchField, Priority.ALWAYS);
             searchField.setStyle("-fx-background-color: -color-bg-card; -fx-border-color: -color-border; -fx-border-radius: 6; -fx-background-radius: 6; -fx-text-fill: -color-text-main; -fx-padding: 8 12;");
-            explorerBar.getChildren().add(searchField);
+            Button sortDateBtn = new Button("Sort by Date");
+            Button sortNameBtn = new Button("Sort by Name");
+            sortDateBtn.setCursor(javafx.scene.Cursor.HAND);
+            sortNameBtn.setCursor(javafx.scene.Cursor.HAND);
+
+            Button gridBtn = new Button("Grid Mode");
+            Button listBtn = new Button("List Mode");
+            gridBtn.setCursor(javafx.scene.Cursor.HAND);
+            listBtn.setCursor(javafx.scene.Cursor.HAND);
+
+            VBox filesContainer = new VBox(16);
+            filesContainer.setFillWidth(true);
+
+            Runnable updateBtnStyles = () -> {
+                if ("Date".equals(assignSortOrder)) {
+                    sortDateBtn.setStyle("-fx-background-color: -color-accent; -fx-text-fill: -color-bg-main; -fx-font-weight: bold; -fx-background-radius: 6; -fx-padding: 6 12;");
+                    sortNameBtn.setStyle("-fx-background-color: -color-bg-card; -fx-text-fill: -color-text-muted; -fx-border-color: -color-border; -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 6 12;");
+                } else {
+                    sortNameBtn.setStyle("-fx-background-color: -color-accent; -fx-text-fill: -color-bg-main; -fx-font-weight: bold; -fx-background-radius: 6; -fx-padding: 6 12;");
+                    sortDateBtn.setStyle("-fx-background-color: -color-bg-card; -fx-text-fill: -color-text-muted; -fx-border-color: -color-border; -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 6 12;");
+                }
+
+                if (assignGridMode) {
+                    gridBtn.setStyle("-fx-background-color: -color-accent; -fx-text-fill: -color-bg-main; -fx-font-weight: bold; -fx-background-radius: 6; -fx-padding: 6 12;");
+                    listBtn.setStyle("-fx-background-color: -color-bg-card; -fx-text-fill: -color-text-muted; -fx-border-color: -color-border; -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 6 12;");
+                } else {
+                    listBtn.setStyle("-fx-background-color: -color-accent; -fx-text-fill: -color-bg-main; -fx-font-weight: bold; -fx-background-radius: 6; -fx-padding: 6 12;");
+                    gridBtn.setStyle("-fx-background-color: -color-bg-card; -fx-text-fill: -color-text-muted; -fx-border-color: -color-border; -fx-border-radius: 6; -fx-background-radius: 6; -fx-padding: 6 12;");
+                }
+            };
+            updateBtnStyles.run();
+
+            explorerBar.getChildren().addAll(searchField, sortDateBtn, sortNameBtn, gridBtn, listBtn);
             content.getChildren().add(explorerBar);
+            content.getChildren().add(filesContainer);
 
             FlowPane flow = new FlowPane(16, 16);
             flow.setPadding(new Insets(8, 0, 16, 0));
 
             Runnable filterAndRender = () -> {
+                filesContainer.getChildren().clear();
                 flow.getChildren().clear();
                 List<PortalAssignment> filtered = new ArrayList<>();
                 for (PortalAssignment pa : list) {
@@ -1915,6 +1951,16 @@ private String formatFileSize(long bytes) {
                         pa.course.toLowerCase().contains(assignmentsSearchQuery.toLowerCase())) {
                         filtered.add(pa);
                     }
+                }
+                
+                if ("Date".equals(assignSortOrder)) {
+                    filtered.sort((a1, a2) -> {
+                        LocalDate d1 = parseUploadDate(a1.startDate);
+                        LocalDate d2 = parseUploadDate(a2.startDate);
+                        return d2.compareTo(d1); // Newest first
+                    });
+                } else {
+                    filtered.sort(Comparator.comparing(a -> a.title.toLowerCase())); // A-Z
                 }
                 
                 if (filtered.isEmpty()) {
@@ -1928,27 +1974,60 @@ private String formatFileSize(long bytes) {
                     Label label = new Label("No matching assignments found");
                     label.setStyle("-fx-text-fill: -color-text-muted;-fx-font-size:12px;-fx-font-weight:bold;");
                     emptyCard.getChildren().addAll(icon, label);
-                    flow.getChildren().add(emptyCard);
+                    filesContainer.getChildren().add(emptyCard);
                 } else {
-                    for (PortalAssignment pa : filtered) {
-                        flow.getChildren().add(buildAssignmentCard(pa, "CoursePortal.aspx"));
+                    if (assignGridMode) {
+                        for (PortalAssignment pa : filtered) {
+                            flow.getChildren().add(buildAssignmentCard(pa, "CoursePortal.aspx"));
+                        }
+                        filesContainer.getChildren().add(flow);
+                        adjustFlowGrid(flow, 320, 450, 16);
+                    } else {
+                        VBox listCol = new VBox(12);
+                        for (PortalAssignment pa : filtered) {
+                            VBox card = buildAssignmentCard(pa, "CoursePortal.aspx");
+                            card.setMaxWidth(Double.MAX_VALUE);
+                            card.setPrefWidth(Region.USE_COMPUTED_SIZE);
+                            listCol.getChildren().add(card);
+                        }
+                        filesContainer.getChildren().add(listCol);
                     }
                 }
-                adjustFlowGrid(flow, 320, 450, 16);
             };
+
+            sortDateBtn.setOnAction(e -> {
+                assignSortOrder = "Date";
+                updateBtnStyles.run();
+                filterAndRender.run();
+            });
+
+            sortNameBtn.setOnAction(e -> {
+                assignSortOrder = "Name";
+                updateBtnStyles.run();
+                filterAndRender.run();
+            });
+
+            gridBtn.setOnAction(e -> {
+                assignGridMode = true;
+                updateBtnStyles.run();
+                filterAndRender.run();
+            });
+
+            listBtn.setOnAction(e -> {
+                assignGridMode = false;
+                updateBtnStyles.run();
+                filterAndRender.run();
+            });
 
             searchField.textProperty().addListener((obs, oldVal, newVal) -> {
                 assignmentsSearchQuery = newVal.trim();
                 filterAndRender.run();
             });
 
-            flow.widthProperty().addListener((obs, oldVal, newVal) -> adjustFlowGrid(flow, 320, 450, 16));
-            Platform.runLater(() -> {
-                filterAndRender.run();
-                adjustFlowGrid(flow, 320, 450, 16);
+            flow.widthProperty().addListener((obs, oldVal, newVal) -> {
+                if (assignGridMode) adjustFlowGrid(flow, 320, 450, 16);
             });
-
-            content.getChildren().add(flow);
+            Platform.runLater(filterAndRender);
         }
 
         sp.setContent(content);
@@ -2085,13 +2164,13 @@ private String formatFileSize(long bytes) {
                     
                     if (result instanceof PortalRepository.UploadResult.Success) {
                         context.notificationService().showSuccess("Upload Complete", "Assignment uploaded successfully!");
-                        if ("pending_assignments".equals(activeTab)) {
+                        if ("portal_pending".equals(activeTab)) {
                             loadPendingAssignmentsData(true);
                         } else {
                             loadAssignmentsData(true);
                         }
                     } else {
-                        if ("pending_assignments".equals(activeTab)) {
+                        if ("portal_pending".equals(activeTab)) {
                             loadPendingAssignmentsData(true);
                         } else {
                             loadAssignmentsData(true);
@@ -2111,7 +2190,7 @@ private String formatFileSize(long bytes) {
                 ErrorReporter.logError("CoursePortalTabView#triggerAssignmentUpload", ex);
                 Platform.runLater(() -> {
                     if (btn != null) btn.setDisable(false);
-                    if ("pending_assignments".equals(activeTab)) {
+                    if ("portal_pending".equals(activeTab)) {
                         loadPendingAssignmentsData(true);
                     } else {
                         loadAssignmentsData(true);

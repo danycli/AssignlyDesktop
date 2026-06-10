@@ -29,7 +29,6 @@ public class MobileAppActivationTabView {
     private Button playStoreLinkBtn;
     private ProgressBar progressBar;
     private Label statusLbl;
-    private final VBox statusCardContainer = new VBox(12);
     private final VBox stepsContainer = new VBox();
     private final List<VBox> stepCards = new ArrayList<>();
     private boolean isLayoutNarrow = false;
@@ -40,7 +39,7 @@ public class MobileAppActivationTabView {
         this.context = context;
         buildUI();
         context.addConnectivityListener(connectivityListener);
-        loadStatus();
+        fetchPlayStoreLink();
     }
 
     private void buildUI() {
@@ -217,30 +216,7 @@ public class MobileAppActivationTabView {
         rightCol.setMinWidth(280);
         rightCol.setMaxWidth(350);
 
-        // Status Card Base
-        statusCardContainer.setPadding(new Insets(16));
-        statusCardContainer.setStyle("-fx-background-color: -color-bg-card;-fx-border-color: -color-border;"
-                + "-fx-border-width: 1;-fx-border-radius: 12;-fx-background-radius: 12;"
-                + "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.02), 8, 0, 0, 2);");
-        
-        statusCardContainer.setOnMouseEntered(e -> {
-            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), statusCardContainer);
-            tt.setToY(-2);
-            tt.play();
-            statusCardContainer.setStyle("-fx-background-color: -color-bg-card; -fx-border-color: -color-accent;"
-                    + "-fx-border-width: 1; -fx-border-radius: 12; -fx-background-radius: 12;"
-                    + "-fx-effect: dropshadow(three-pass-box, rgba(20, 184, 166, 0.05), 10, 0, 0, 3);");
-        });
-        statusCardContainer.setOnMouseExited(e -> {
-            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), statusCardContainer);
-            tt.setToY(0);
-            tt.play();
-            statusCardContainer.setStyle("-fx-background-color: -color-bg-card; -fx-border-color: -color-border;"
-                    + "-fx-border-width: 1; -fx-border-radius: 12; -fx-background-radius: 12;"
-                    + "-fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.02), 8, 0, 0, 2);");
-        });
-        
-        showNotActivatedStatus();
+        // Download App Card
 
         // Download App Card
         VBox downloadCard = new VBox(12);
@@ -310,7 +286,7 @@ public class MobileAppActivationTabView {
                     + "-fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.02), 8, 0, 0, 2);");
         });
 
-        rightCol.getChildren().addAll(statusCardContainer, downloadCard);
+        rightCol.getChildren().addAll(downloadCard);
         bodySplit.getChildren().addAll(leftCol, rightCol);
         root.getChildren().add(bodySplit);
 
@@ -328,8 +304,8 @@ public class MobileAppActivationTabView {
         stepsTimeline.getChildren().add(stepsContainer);
         root.getChildren().add(stepsTimeline);
 
-        // Populate steps based on activation status
-        rebuildStepCards(false);
+        // Populate steps
+        rebuildStepCards();
 
         // Submit Button Action
         submitBtn.setOnAction(e -> {
@@ -366,14 +342,6 @@ public class MobileAppActivationTabView {
                     
                     if (msg.toLowerCase().contains("success") || msg.toLowerCase().contains("activated") 
                             || msg.contains("completed") || msg.contains("no explicit message")) {
-                        
-                        String regNo = context.getSessionRegistration();
-                        java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userNodeForPackage(MobileAppActivationTabView.class);
-                        prefs.putBoolean("activated_" + regNo, true);
-                        String todayStr = LocalDate.now().format(DateTimeFormatter.ofPattern("MMM dd, yyyy"));
-                        prefs.put("activation_date_" + regNo, todayStr);
-                        
-                        showActivatedStatus(regNo, todayStr);
                         
                         String successMsg = (msg.contains("completed") || msg.contains("no explicit message")) 
                                 ? "Student App is Activated. Use Same Password for Student Portal and App login." 
@@ -510,24 +478,20 @@ public class MobileAppActivationTabView {
         return card;
     }
 
-    private void rebuildStepCards(boolean isActivated) {
+    private void rebuildStepCards() {
         stepCards.clear();
         
         // Step 1: Download mobile app
-        stepCards.add(createStepCardStyle("Step 1", "Download mobile app", "📥", 
-            isActivated ? "completed" : "active"));
+        stepCards.add(createStepCardStyle("Step 1", "Download mobile app", "📥", "active"));
             
         // Step 2: Activate app access
-        stepCards.add(createStepCardStyle("Step 2", "Activate app access", "⚡", 
-            isActivated ? "completed" : "active_highlight"));
+        stepCards.add(createStepCardStyle("Step 2", "Activate app access", "⚡", "active_highlight"));
             
         // Step 3: Login via credentials
-        stepCards.add(createStepCardStyle("Step 3", "Login via credentials", "🔑", 
-            isActivated ? "active_highlight" : "muted"));
+        stepCards.add(createStepCardStyle("Step 3", "Login via credentials", "🔑", "muted"));
             
         // Step 4: Access portal services
-        stepCards.add(createStepCardStyle("Step 4", "Access portal services", "✨", 
-            isActivated ? "active" : "muted"));
+        stepCards.add(createStepCardStyle("Step 4", "Access portal services", "✨", "muted"));
             
         updateStepsLayout(this.isLayoutNarrow);
     }
@@ -552,79 +516,9 @@ public class MobileAppActivationTabView {
         }
     }
 
-    // ==================== Status Control ====================
+    // ==================== Utilities ====================
 
-    private void showActivatedStatus(String regNo, String dateStr) {
-        statusCardContainer.getChildren().clear();
-        
-        HBox statusHeader = new HBox(8);
-        statusHeader.setAlignment(Pos.CENTER_LEFT);
-        Label title = new Label("App Connection Status");
-        title.setStyle("-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -color-text-main;");
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        Label badge = new Label("🟢 ACTIVE");
-        badge.setStyle("-fx-text-fill: #10B981; -fx-font-size: 10px; -fx-font-weight: 800; -fx-background-color: rgba(16, 185, 129, 0.08); -fx-padding: 3 8; -fx-background-radius: 10; -fx-border-color: rgba(16, 185, 129, 0.2); -fx-border-width: 1; -fx-border-radius: 10;");
-        statusHeader.getChildren().addAll(title, spacer, badge);
-        
-        GridPane grid = new GridPane();
-        grid.setHgap(16);
-        grid.setVgap(10);
-        grid.setPadding(new Insets(6, 0, 0, 0));
-        
-        grid.add(createStatusField("Registration"), 0, 0);
-        grid.add(createStatusValue(regNo), 1, 0);
-        
-        grid.add(createStatusField("Activated On"), 0, 1);
-        grid.add(createStatusValue(dateStr), 1, 1);
-        
-        grid.add(createStatusField("App Services"), 0, 2);
-        grid.add(createStatusValue("Enabled / Verified"), 1, 2);
-        
-        Separator sep = new Separator();
-        sep.setStyle("-fx-background-color: -color-border; -fx-opacity: 0.25;");
-        
-        statusCardContainer.getChildren().addAll(statusHeader, sep, grid);
-        rebuildStepCards(true);
-    }
-    
-    private void showNotActivatedStatus() {
-        statusCardContainer.getChildren().clear();
-        
-        HBox statusHeader = new HBox(8);
-        statusHeader.setAlignment(Pos.CENTER_LEFT);
-        Label title = new Label("App Connection Status");
-        title.setStyle("-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -color-text-main;");
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        Label badge = new Label("🔴 INACTIVE");
-        badge.setStyle("-fx-text-fill: #EF4444; -fx-font-size: 10px; -fx-font-weight: 800; -fx-background-color: rgba(239, 68, 68, 0.08); -fx-padding: 3 8; -fx-background-radius: 10; -fx-border-color: rgba(239, 68, 68, 0.2); -fx-border-width: 1; -fx-border-radius: 10;");
-        statusHeader.getChildren().addAll(title, spacer, badge);
-        
-        Label msg = new Label("Activate your account to access mobile services.");
-        msg.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500;");
-        msg.setWrapText(true);
-        
-        Separator sep = new Separator();
-        sep.setStyle("-fx-background-color: -color-border; -fx-opacity: 0.25;");
-        
-        statusCardContainer.getChildren().addAll(statusHeader, sep, msg);
-        rebuildStepCards(false);
-    }
-
-    private Label createStatusField(String text) {
-        Label l = new Label(text);
-        l.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500;");
-        return l;
-    }
-
-    private Label createStatusValue(String text) {
-        Label l = new Label(text);
-        l.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-main; -fx-font-weight: 800;");
-        return l;
-    }
-
-    private void loadStatus() {
+    private void fetchPlayStoreLink() {
         new Thread(() -> {
             try {
                 String html = context.dataCacheService().getCachedHtml("GenerateAppPassword.aspx").orElse(null);
@@ -632,66 +526,28 @@ public class MobileAppActivationTabView {
                     html = context.fetchAndCacheHtml("GenerateAppPassword.aspx");
                 }
                 
-                final String finalHtml = html;
-                Platform.runLater(() -> checkAndSetActivationStatus(finalHtml));
+                String playStoreUrl = "https://play.google.com/store/apps/details?id=edupk.cuiatd.cuonlinestudentportal";
+                if (html != null && !html.isBlank()) {
+                    Document doc = Jsoup.parse(html);
+                    for (Element a : doc.select("a[href*=play.google.com]")) {
+                        String href = a.attr("href");
+                        if (!href.isEmpty()) {
+                            playStoreUrl = href;
+                            break;
+                        }
+                    }
+                }
+                
+                final String finalPlayStoreUrl = playStoreUrl;
+                Platform.runLater(() -> {
+                    if (playStoreLinkBtn != null) {
+                        playStoreLinkBtn.setOnAction(e -> launchUrl(finalPlayStoreUrl));
+                    }
+                });
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }).start();
-    }
-
-    private void checkAndSetActivationStatus(String html) {
-        String regNo = context.getSessionRegistration();
-        java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userNodeForPackage(MobileAppActivationTabView.class);
-        String activeKey = "activated_" + regNo;
-        String dateKey = "activation_date_" + regNo;
-        
-        boolean portalIndicatedActive = false;
-        String playStoreUrl = "https://play.google.com/store/apps/details?id=edupk.cuiatd.cuonlinestudentportal";
-        
-        if (html != null && !html.isBlank()) {
-            Document doc = Jsoup.parse(html);
-            Element msg = doc.select("span[id*=lblMsg], span[id*=lblMessage], span[id*=lblError], div.alert").first();
-            if (msg != null) {
-                String txt = msg.text().toLowerCase();
-                if (txt.contains("activated") || txt.contains("already active") || txt.contains("success")) {
-                    portalIndicatedActive = true;
-                }
-            }
-            String bodyText = doc.body().text().toLowerCase();
-            if (bodyText.contains("app is already activated") || bodyText.contains("your mobile application is activated") || bodyText.contains("app is activated")) {
-                portalIndicatedActive = true;
-            }
-            
-            for (Element a : doc.select("a[href*=play.google.com]")) {
-                String href = a.attr("href");
-                if (!href.isEmpty()) {
-                    playStoreUrl = href;
-                    break;
-                }
-            }
-        }
-        
-        final String finalPlayStoreUrl = playStoreUrl;
-        Platform.runLater(() -> {
-            if (playStoreLinkBtn != null) {
-                playStoreLinkBtn.setOnAction(e -> launchUrl(finalPlayStoreUrl));
-            }
-        });
-
-        boolean currentlyActivated = portalIndicatedActive || prefs.getBoolean(activeKey, false);
-        
-        if (currentlyActivated) {
-            prefs.putBoolean(activeKey, true);
-            String savedDate = prefs.get(dateKey, null);
-            if (savedDate == null) {
-                savedDate = LocalDate.now().format(DateTimeFormatter.ofPattern("MMM dd, yyyy"));
-                prefs.put(dateKey, savedDate);
-            }
-            showActivatedStatus(regNo, savedDate);
-        } else {
-            showNotActivatedStatus();
-        }
     }
 
     private void launchUrl(String url) {

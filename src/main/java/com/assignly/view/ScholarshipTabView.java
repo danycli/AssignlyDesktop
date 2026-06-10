@@ -471,7 +471,8 @@ public class ScholarshipTabView {
                 extractedText = context.dataCacheService().getCachedHtml("scholarship_conditions_text.txt").orElse(null);
             }
             if (extractedText == null) {
-                extractedText = context.portalRepository().downloadAndExtractPdf("scholarship/Genral%20Scholarships%20Conditions%20April%202026.pdf");
+                String pdfUrl = context.portalRepository().fetchScholarshipConditionsPdfUrl();
+                extractedText = context.portalRepository().downloadAndExtractPdf(pdfUrl);
                 if (extractedText != null) {
                     context.dataCacheService().cacheHtml("scholarship_conditions_text.txt", extractedText);
                 }

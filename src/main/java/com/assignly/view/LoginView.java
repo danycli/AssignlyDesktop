@@ -72,12 +72,14 @@ public class LoginView {
 
         // Subtle ambient glowing highlights
         Circle glow1 = new Circle(220, Color.web("#14b8a6", 0.04));
+        glow1.setMouseTransparent(true);
         StackPane.setAlignment(glow1, Pos.TOP_LEFT);
         glow1.setTranslateX(-60);
         glow1.setTranslateY(-60);
         glow1.setEffect(new javafx.scene.effect.BoxBlur(120, 120, 3));
 
         Circle glow2 = new Circle(180, Color.web("#0d9488", 0.03));
+        glow2.setMouseTransparent(true);
         StackPane.setAlignment(glow2, Pos.BOTTOM_RIGHT);
         glow2.setTranslateX(60);
         glow2.setTranslateY(60);
@@ -237,6 +239,7 @@ public class LoginView {
 
         // Subtle backing glow behind the card
         Circle glow = new Circle(140, Color.web("#14b8a6", 0.02));
+        glow.setMouseTransparent(true);
         glow.setEffect(new javafx.scene.effect.BoxBlur(80, 80, 3));
         container.getChildren().add(glow);
 

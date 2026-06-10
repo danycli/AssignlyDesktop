@@ -574,6 +574,27 @@ public class PortalRepository {
         return new DashboardData(photoUrl, info, attendance);
     }
 
+    public String fetchScholarshipConditionsPdfUrl() {
+        String html = fetchPageHtml("scholarship/ViewScholarshipStatuse.aspx");
+        if (html != null && !html.isBlank()) {
+            Document doc = Jsoup.parse(html, BASE_URL + "/scholarship/ViewScholarshipStatuse.aspx");
+            for (Element a : doc.select("a[href]")) {
+                String href = a.attr("abs:href");
+                String text = a.text().toLowerCase();
+                if (href.toLowerCase().endsWith(".pdf") && (text.contains("condition") || text.contains("general") || href.toLowerCase().contains("condition"))) {
+                    return href;
+                }
+            }
+            for (Element a : doc.select("a[href]")) {
+                String href = a.attr("abs:href");
+                if (href.toLowerCase().endsWith(".pdf")) {
+                    return href;
+                }
+            }
+        }
+        return "scholarship/Genral%20Scholarships%20Conditions%20April%202026.pdf";
+    }
+
     public Map<String, String> parseCourseNames(String html) {
         Map<String, String> map = new HashMap<>();
         if (html == null || html.isBlank()) return map;
@@ -3183,12 +3204,12 @@ public class PortalRepository {
             logD("PortalAuth", "  Has error: " + hasError);
             logD("PortalAuth", "  Response length: " + responseHtml.length());
 
-            if (hasError) {
-                logD("PortalAuth", "Failed: Found error message");
-                return new UploadResult.Rejected(rejectionReason);
-            } else if (hasSuccessMessage) {
+            if (hasSuccessMessage) {
                 logD("PortalAuth", "Success: Found success message");
                 return new UploadResult.Success();
+            } else if (hasError) {
+                logD("PortalAuth", "Failed: Found error message");
+                return new UploadResult.Rejected(rejectionReason);
             } else if (hasForm && !hasFileInput) {
                 logD("PortalAuth", "Success: File input disappeared and page reloaded");
                 return new UploadResult.Success();
