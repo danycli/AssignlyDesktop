@@ -1,6 +1,6 @@
 # Assignly Desktop
 
-Assignly Desktop is a premium, client-side academic portal companion app built for students. It connects to the university portal to scrape, sync, and present academic data (assignments, schedules, grades, attendance, and financials) in a beautiful, modern desktop interface with powerful offline-first capabilities.
+Assignly Desktop is a premium, client-side academic portal companion app built **exclusively for the students of COMSATS University Islamabad, Abbottabad Campus**. It connects to the university portal to scrape, sync, and present academic data (assignments, schedules, grades, attendance, and financials) in a beautiful, modern desktop interface with powerful offline-first capabilities.
 
 ---
 
@@ -20,8 +20,8 @@ Assignly Desktop is a premium, client-side academic portal companion app built f
 *   **Financial Card**: Quick summary of current scholarship awards, unpaid fee challan balances, and the last verified transaction.
 
 ### 3. Smart Timetable & Schedule Engine
-*   **Multi-View Interface**: Includes a "Today" view showing current live classes (with "Ends In" countdowns), upcoming classes (with "Starts In" countdowns), and a comprehensive "Week" grid view.
-*   **Smart Filtering**: Features an in-bar search and a "Show Empty Days" toggle to filter out days with no scheduled academic activities.
+*   **Multi-View Interface**: Includes a "Today" view showing current live classes (with "Ends In" countdowns), upcoming classes (with "Starts In" countdowns), and a comprehensive "Week Grid" and "All List" view.
+*   **Smart Filtering**: Features an in-bar search and a context-aware "Show Empty Days" toggle (dynamically hidden when irrelevant) to filter out days with no scheduled academic activities.
 *   **Details Drawer**: Slide-out panel presenting comprehensive lecture specs (room/location, faculty instructor, duration, slot type).
 
 ### 4. Offline-First Architecture & Local Caching
@@ -30,7 +30,9 @@ Assignly Desktop is a premium, client-side academic portal companion app built f
 *   **Offline UX Indicators**: Subtle warning banners and responsive action disabling for features requiring a live internet connection.
 
 ### 5. Academic Portal & Resource Explorer
-*   **Course Portal View**: Tracks individual assignments, submissions, gradings, notice boards, and announcements.
+*   **Course Portal View**: Tracks individual assignments, submissions, gradings, notice boards, and announcements. Features dynamic assignment uploads with instant UI auto-refresh, and customizable grid/list views with powerful sorting.
+*   **Performance Tracking**: Granular breakdown of Quizzes, Assignments, Sessionals, Mid Term Marks, and Final Exam Marks.
+*   **Attendance Timeline**: Advanced timeline logs of all class proceedings automatically sorted from newest to oldest, with mutually exclusive visual filters for quickly isolating Present or Absent lectures.
 *   **Lecture Resources**: View and extract files/resources uploaded by professors.
 *   **Exam Coupon & Roll Numbers**: Verification of enrollment details and retrieval of printable exam slips.
 *   **GPA/Results View**: Track detailed semester-by-semester grades, credit hours, and progress transcripts.
@@ -41,7 +43,7 @@ Assignly Desktop is a premium, client-side academic portal companion app built f
 
 ### 7. Utility Services & Mobile Sync
 *   **PDF Report Exporter**: In-app PDF generation to export transcripts, fees, or class schedules using `PdfExportService.java`.
-*   **Mobile App Activation**: Generates secure sync codes to pair local data with the mobile companion application.
+*   **Mobile App Activation**: Provides secure and direct generation of app passwords alongside quick Play Store download links to easily pair local data with the mobile companion application.
 *   **Web Portal Tab**: An integrated browser frame to interact with the raw university portal directly when manual submission is required.
 
 ---
