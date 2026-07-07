@@ -352,12 +352,22 @@ public class AppContext {
 
             WebView webView = new WebView();
             WebEngine engine = webView.getEngine();
-            engine.setUserAgent(PortalRepository.USER_AGENT);
+            // Don't override the UA for the captcha dialog. JavaFX WebKit's real
+            // default UA truthfully identifies the engine. Spoofing a modern Safari
+            // string (PortalRepository.USER_AGENT) creates a capabilities mismatch
+            // that Turnstile's fingerprinting detects, causing infinite re-issuance.
+            // Android's CaptchaWebViewDialog uses the system WebView's real default
+            // UA for the same reason.
             try {
                 engine.setUserDataDirectory(new java.io.File(com.assignly.util.AppDirectoryHelper.getAppDataDir()));
             } catch (Exception ignored) {}
 
-            portalService.enableAutoLogin(engine, reg, pass);
+            // Don't inject credential auto-fill into the captcha dialog's DOM.
+            // Synthetic value-setting and input events on the same page as the
+            // Turnstile widget are bot-like signals that stack against getting a
+            // clean pass. Android's CaptchaWebViewDialog never touches form fields
+            // — it only watches cookies and URLs. Credential handling happens after
+            // cf_clearance is confirmed, not concurrently with the widget.
 
             ProgressBar progressBar = new ProgressBar(0);
             progressBar.setMaxWidth(Double.MAX_VALUE);
