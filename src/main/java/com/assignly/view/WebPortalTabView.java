@@ -65,8 +65,14 @@ public class WebPortalTabView {
 
         engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
             if (newState == Worker.State.SUCCEEDED) {
-                UserPreferences currentPrefs = context.preferencesService().loadPreferences();
-                context.portalService().applyDarkOverlay(engine, currentPrefs.isDarkOverlay());
+                String loc = engine.getLocation() != null ? engine.getLocation().toLowerCase() : "";
+                String pageTitle = engine.getTitle() != null ? engine.getTitle().toLowerCase() : "";
+                
+                // Strict conditional protective guard: completely skip running scripts or styles on Cloudflare routing pages
+                if (!loc.contains("cdn-cgi") && !pageTitle.contains("just a moment")) {
+                    UserPreferences currentPrefs = context.preferencesService().loadPreferences();
+                    context.portalService().applyDarkOverlay(engine, currentPrefs.isDarkOverlay());
+                }
             }
         });
 
