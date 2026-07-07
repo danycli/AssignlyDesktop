@@ -19,24 +19,24 @@ public class CoursesTabView {
     private final VBox root = new VBox();
     private final AppContext context;
     private StackPane contentPane;
-    
+
     // REDESIGN STATE
     private List<CourseSummary> courseList = new ArrayList<>();
     private CourseSummary selectedCourse = null;
     private String activeSegment = "overview"; // "overview", "attendance", "performance"
     private boolean isOfflineMode = false;
-    
+
     // Internal Cache HTMLs
     private String summaryHtml = "";
     private String proceedingsHtml = "";
     private String marksHtml = "";
     private boolean proceedingsRequestCompleted = false;
     private boolean marksRequestCompleted = false;
-    
+
     private static final String PROC_PAGE = "classproceedings.aspx";
     private static final String MARKS_PAGE = "QAMarks.aspx";
-    private static final String[] MARKS_FALLBACKS = {"QASessMarks.aspx", "QASessionMarks.aspx", "Marks.aspx"};
-    
+    private static final String[] MARKS_FALLBACKS = { "QASessMarks.aspx", "QASessionMarks.aspx", "Marks.aspx" };
+
     // Fields for navigation/filtering inside subtabs
     private String attendanceSearchQuery = "";
     private boolean filterPresentOnly = false;
@@ -97,39 +97,40 @@ public class CoursesTabView {
 
     public CourseHealthResult evaluateCourseHealth(CourseSummary c, String courseMarksHtml) {
         CourseHealthResult result = new CourseHealthResult();
-        
+
         // 1. Check Attendance
         double attVal = Double.NaN;
         if (c.percentage != null && !c.percentage.equalsIgnoreCase("N/A") && !c.percentage.isBlank()) {
             try {
                 attVal = Double.parseDouble(c.percentage.replace("%", "").trim());
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
-        
+
         // Rule 1: If attendance data is unavailable
         if (Double.isNaN(attVal)) {
             result.healthStatus = "Awaiting Records";
             return result;
         }
-        
+
         // Rule 2: If attendance is < 75% -> always At Risk
         if (attVal < 75.0) {
             result.combinedScore = attVal;
             result.healthStatus = "At Risk";
             return result;
         }
-        
+
         // 2. Parse courseMarksHtml if available
         if (courseMarksHtml == null || courseMarksHtml.isBlank()) {
             result.healthStatus = "Insufficient Data";
             return result;
         }
-        
+
         List<MarksCategory> categories = parseMarksCategories(courseMarksHtml);
         double quizAvg = Double.NaN;
         double assignAvg = Double.NaN;
         double sessAvg = Double.NaN;
-        
+
         for (MarksCategory cat : categories) {
             if ("Quizzes".equalsIgnoreCase(cat.categoryName)) {
                 quizAvg = cat.averagePct;
@@ -142,22 +143,23 @@ public class CoursesTabView {
                 result.sessAvgStr = String.format("%.1f%%", sessAvg);
             }
         }
-        
+
         // Determine available components and compute Health Score
         boolean hasQuiz = !Double.isNaN(quizAvg) && quizAvg >= 0;
         boolean hasAssign = !Double.isNaN(assignAvg) && assignAvg >= 0;
         boolean hasSess = !Double.isNaN(sessAvg) && sessAvg >= 0;
-        
-        // Case 4: Attendance >= 75% but assignments and quizzes are missing -> Insufficient Data
+
+        // Case 4: Attendance >= 75% but assignments and quizzes are missing ->
+        // Insufficient Data
         if (!hasQuiz && !hasAssign) {
             result.healthStatus = "Insufficient Data";
             return result;
         }
-        
+
         // Calculate combined score
         double totalWeight = 40.0;
         double weightedSum = 40.0 * attVal;
-        
+
         if (hasQuiz) {
             totalWeight += 30.0;
             weightedSum += 30.0 * quizAvg;
@@ -170,10 +172,10 @@ public class CoursesTabView {
             totalWeight += 10.0;
             weightedSum += 10.0 * sessAvg;
         }
-        
+
         double score = weightedSum / totalWeight;
         result.combinedScore = score;
-        
+
         // Classify health status based on configurable thresholds
         if (score >= thresholdExcellent) {
             result.healthStatus = "Excellent";
@@ -184,7 +186,7 @@ public class CoursesTabView {
         } else {
             result.healthStatus = "At Risk";
         }
-        
+
         return result;
     }
 
@@ -195,7 +197,7 @@ public class CoursesTabView {
     public CoursesTabView(AppContext context, String initialTab, String initialCourseQuery) {
         this.context = context;
         buildShell();
-        
+
         // Handle deep-linking
         if (initialCourseQuery != null && !initialCourseQuery.isBlank()) {
             if ("proceedings".equalsIgnoreCase(initialTab)) {
@@ -242,21 +244,21 @@ public class CoursesTabView {
             VBox box = new VBox(14);
             box.setAlignment(Pos.CENTER);
             box.setPadding(new Insets(40));
-            
+
             Label icon = new Label("⚠️");
             icon.setStyle("-fx-font-size: 32px;");
-            
+
             Label label = new Label(msg);
             label.setStyle("-fx-text-fill: -color-text-muted; -fx-font-size: 13px; -fx-text-alignment: center;");
             label.setWrapText(true);
-            
+
             Button backBtn = new Button("Return to My Courses");
             backBtn.getStyleClass().add("accent-button");
             backBtn.setOnAction(e -> {
                 selectedCourse = null;
                 loadLandingPage(true);
             });
-            
+
             box.getChildren().addAll(icon, label, backBtn);
             contentPane.getChildren().add(box);
         });
@@ -328,13 +330,14 @@ public class CoursesTabView {
             VBox emptyState = new VBox(12);
             emptyState.setAlignment(Pos.CENTER);
             emptyState.setPadding(new Insets(40));
-            emptyState.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1;");
-            
+            emptyState.setStyle(
+                    "-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1;");
+
             Label icon = new Label("📚");
             icon.setStyle("-fx-font-size: 32px;");
             Label lbl = new Label("No registered courses found.");
             lbl.setStyle("-fx-font-size: 13px; -fx-text-fill: -color-text-muted; -fx-font-weight: bold;");
-            
+
             emptyState.getChildren().addAll(icon, lbl);
             container.getChildren().add(emptyState);
         } else {
@@ -367,7 +370,7 @@ public class CoursesTabView {
         // Header: Code and Class Name badge
         HBox topRow = new HBox(8);
         topRow.setAlignment(Pos.CENTER_LEFT);
-        
+
         Label code = new Label(c.code.isEmpty() ? "COURSE" : c.code);
         code.getStyleClass().add("course-card-code");
 
@@ -375,21 +378,32 @@ public class CoursesTabView {
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         // Class Name badge
-        Label classBadge = new Label(c.className.isEmpty() || c.className.equalsIgnoreCase("N/A") ? "Class: N/A" : "Class: " + c.className);
-        classBadge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: #004643; -fx-background-color: rgba(0, 70, 67, 0.08); -fx-padding: 2 8; -fx-background-radius: 8;");
-        
+        Label classBadge = new Label(
+                c.className.isEmpty() || c.className.equalsIgnoreCase("N/A") ? "Class: N/A" : "Class: " + c.className);
+        classBadge.setStyle(
+                "-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: #004643; -fx-background-color: rgba(0, 70, 67, 0.08); -fx-padding: 2 8; -fx-background-radius: 8;");
+
         // Attendance Badge at top right
         String attStrBadge = c.percentage != null && !c.percentage.isEmpty() ? c.percentage : "N/A";
         String attBg = "#f1f5f9";
         String attFg = "#64748b";
         try {
             double v = Double.parseDouble(attStrBadge.replace("%", "").trim());
-            if (v < 75.0) { attBg = "#fee2e2"; attFg = "#dc2626"; }
-            else if (v < 85.0) { attBg = "#fef3c7"; attFg = "#d97706"; }
-            else { attBg = "#d1fae5"; attFg = "#059669"; }
-        } catch (Exception ignored) {}
+            if (v < 75.0) {
+                attBg = "#fee2e2";
+                attFg = "#dc2626";
+            } else if (v < 85.0) {
+                attBg = "#fef3c7";
+                attFg = "#d97706";
+            } else {
+                attBg = "#d1fae5";
+                attFg = "#059669";
+            }
+        } catch (Exception ignored) {
+        }
         Label attBadge = new Label("Att: " + attStrBadge);
-        attBadge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: " + attFg + "; -fx-background-color: " + attBg + "; -fx-padding: 2 8; -fx-background-radius: 8;");
+        attBadge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: " + attFg
+                + "; -fx-background-color: " + attBg + "; -fx-padding: 2 8; -fx-background-radius: 8;");
 
         topRow.getChildren().addAll(code, spacer, classBadge, attBadge);
 
@@ -423,40 +437,55 @@ public class CoursesTabView {
 
         String attStr = "N/A";
         String attColor = "#64748b";
-        boolean hasLab = c.labPercentage != null && !c.labPercentage.equalsIgnoreCase("N/A") && !c.labPercentage.isBlank();
-        boolean hasTheory = c.theoryPercentage != null && !c.theoryPercentage.equalsIgnoreCase("N/A") && !c.theoryPercentage.isBlank();
-        
+        boolean hasLab = c.labPercentage != null && !c.labPercentage.equalsIgnoreCase("N/A")
+                && !c.labPercentage.isBlank();
+        boolean hasTheory = c.theoryPercentage != null && !c.theoryPercentage.equalsIgnoreCase("N/A")
+                && !c.theoryPercentage.isBlank();
+
         if (hasLab && c.percentage != null && !c.percentage.isEmpty()) {
             attStr = c.percentage + " (Avg)";
             try {
                 double val = Double.parseDouble(c.percentage.replace("%", "").trim());
-                if (val < 75.0) attColor = "#dc2626";
-                else if (val < 85.0) attColor = "#d97706";
-                else attColor = "#004643";
-            } catch (Exception ignored) {}
+                if (val < 75.0)
+                    attColor = "#dc2626";
+                else if (val < 85.0)
+                    attColor = "#d97706";
+                else
+                    attColor = "#004643";
+            } catch (Exception ignored) {
+            }
         } else if (hasTheory) {
             attStr = c.theoryPercentage;
             try {
                 double val = Double.parseDouble(c.theoryPercentage.replace("%", "").trim());
-                if (val < 75.0) attColor = "#dc2626";
-                else if (val < 85.0) attColor = "#d97706";
-                else attColor = "#004643";
-            } catch (Exception ignored) {}
+                if (val < 75.0)
+                    attColor = "#dc2626";
+                else if (val < 85.0)
+                    attColor = "#d97706";
+                else
+                    attColor = "#004643";
+            } catch (Exception ignored) {
+            }
         } else if (c.percentage != null && !c.percentage.equalsIgnoreCase("N/A") && !c.percentage.isBlank()) {
             attStr = c.percentage;
             try {
                 double val = Double.parseDouble(c.percentage.replace("%", "").trim());
-                if (val < 75.0) attColor = "#dc2626";
-                else if (val < 85.0) attColor = "#d97706";
-                else attColor = "#004643";
-            } catch (Exception ignored) {}
+                if (val < 75.0)
+                    attColor = "#dc2626";
+                else if (val < 85.0)
+                    attColor = "#d97706";
+                else
+                    attColor = "#004643";
+            } catch (Exception ignored) {
+            }
         }
-        
+
         Label attValLbl = new Label(attStr);
         attValLbl.setStyle("-fx-font-size: 12px; -fx-font-weight: 800; -fx-text-fill: " + attColor + ";");
         attCol.getChildren().addAll(attLabel, attValLbl);
 
-        // Stats Row (combines Lectures and Attendance in side-by-side or stacked format)
+        // Stats Row (combines Lectures and Attendance in side-by-side or stacked
+        // format)
         HBox statsRow = new HBox(20);
         statsRow.setAlignment(Pos.CENTER_LEFT);
         statsRow.getChildren().addAll(lecturesCol, attCol);
@@ -468,20 +497,23 @@ public class CoursesTabView {
         Label statusBadge = new Label();
         if (c.percentage == null || c.percentage.equalsIgnoreCase("N/A") || c.percentage.isBlank()) {
             statusBadge.setText("No Data");
-            statusBadge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: #64748b; -fx-background-color: #f1f5f9; -fx-padding: 3 8; -fx-background-radius: 8;");
+            statusBadge.setStyle(
+                    "-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: #64748b; -fx-background-color: #f1f5f9; -fx-padding: 3 8; -fx-background-radius: 8;");
         } else {
             statusBadge.setText("Active");
-            statusBadge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: #059669; -fx-background-color: #d1fae5; -fx-padding: 3 8; -fx-background-radius: 8;");
+            statusBadge.setStyle(
+                    "-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: #059669; -fx-background-color: #d1fae5; -fx-padding: 3 8; -fx-background-radius: 8;");
         }
 
         Region spacerBottom = new Region();
         HBox.setHgrow(spacerBottom, Priority.ALWAYS);
 
         Button openBtn = new Button("Open Course");
-        openBtn.setStyle("-fx-background-color: -color-accent; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 11px; -fx-padding: 6 12; -fx-background-radius: 6;");
+        openBtn.setStyle(
+                "-fx-background-color: -color-accent; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 11px; -fx-padding: 6 12; -fx-background-radius: 6;");
         openBtn.setCursor(javafx.scene.Cursor.HAND);
         openBtn.setOnAction(e -> openCourseDashboard(c));
-        
+
         bottomRow.getChildren().addAll(statusBadge, spacerBottom, openBtn);
 
         card.getChildren().addAll(topRow, title, infoCol, statsRow, bottomRow);
@@ -495,12 +527,14 @@ public class CoursesTabView {
 
         // Setup TranslateTransition on hover
         card.setOnMouseEntered(e -> {
-            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), card);
+            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(
+                    javafx.util.Duration.millis(150), card);
             tt.setToY(-3);
             tt.play();
         });
         card.setOnMouseExited(e -> {
-            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(javafx.util.Duration.millis(150), card);
+            javafx.animation.TranslateTransition tt = new javafx.animation.TranslateTransition(
+                    javafx.util.Duration.millis(150), card);
             tt.setToY(0);
             tt.play();
         });
@@ -567,25 +601,25 @@ public class CoursesTabView {
             try {
                 String cleanCode = course.code.isEmpty() ? course.title : course.code;
                 boolean isOffline = !context.portalRepository().checkConnectivity();
-                
+
                 String pTarget = course.postbackTarget;
-                
+
                 // Write debug log to assignly.log
                 synchronized (ErrorReporter.class) {
                     try {
                         java.nio.file.Files.writeString(
-                            com.assignly.util.AppDirectoryHelper.getLogPath(), 
-                            "\n========================================\n" +
-                            "DEBUG: loadCourseDataAndDashboard started\n" +
-                            "Course Title: " + course.title + "\n" +
-                            "Course Code: " + course.code + "\n" +
-                            "Postback Target (input): " + (pTarget != null ? pTarget : "null") + "\n" +
-                            "Is Offline: " + isOffline + "\n" +
-                            "========================================\n",
-                            java.nio.file.StandardOpenOption.CREATE, 
-                            java.nio.file.StandardOpenOption.APPEND
-                        );
-                    } catch (Exception ignored) {}
+                                com.assignly.util.AppDirectoryHelper.getLogPath(),
+                                "\n========================================\n" +
+                                        "DEBUG: loadCourseDataAndDashboard started\n" +
+                                        "Course Title: " + course.title + "\n" +
+                                        "Course Code: " + course.code + "\n" +
+                                        "Postback Target (input): " + (pTarget != null ? pTarget : "null") + "\n" +
+                                        "Is Offline: " + isOffline + "\n" +
+                                        "========================================\n",
+                                java.nio.file.StandardOpenOption.CREATE,
+                                java.nio.file.StandardOpenOption.APPEND);
+                    } catch (Exception ignored) {
+                    }
                 }
                 if (!isOffline) {
                     try {
@@ -595,15 +629,18 @@ public class CoursesTabView {
                                 summaryHtml = context.fetchAndCacheHtml("Summary.aspx");
                             }
                             if (summaryHtml != null) {
-                                String resultHtml = context.dataCacheService().getCachedHtml("StudentResultCard.aspx").orElse(null);
+                                String resultHtml = context.dataCacheService().getCachedHtml("StudentResultCard.aspx")
+                                        .orElse(null);
                                 if (resultHtml == null) {
                                     resultHtml = context.fetchAndCacheHtml("StudentResultCard.aspx");
                                 }
-                                Map<String, String> courseNames = context.portalRepository().parseCourseNames(resultHtml);
+                                Map<String, String> courseNames = context.portalRepository()
+                                        .parseCourseNames(resultHtml);
                                 List<CourseSummary> courses = parseSummaryCourses(summaryHtml, courseNames);
                                 for (CourseSummary cs : courses) {
                                     String csCleanCode = cs.code.isEmpty() ? cs.title : cs.code;
-                                    if (csCleanCode.equalsIgnoreCase(cleanCode) || cs.title.equalsIgnoreCase(course.title)) {
+                                    if (csCleanCode.equalsIgnoreCase(cleanCode)
+                                            || cs.title.equalsIgnoreCase(course.title)) {
                                         pTarget = cs.postbackTarget;
                                         break;
                                     }
@@ -615,19 +652,21 @@ public class CoursesTabView {
                         synchronized (ErrorReporter.class) {
                             try {
                                 java.nio.file.Files.writeString(
-                                    com.assignly.util.AppDirectoryHelper.getLogPath(), 
-                                    "DEBUG: Resolved postbackTarget = " + (pTarget != null ? pTarget : "null") + "\n",
-                                    java.nio.file.StandardOpenOption.CREATE, 
-                                    java.nio.file.StandardOpenOption.APPEND
-                                );
-                            } catch (Exception ignored) {}
+                                        com.assignly.util.AppDirectoryHelper.getLogPath(),
+                                        "DEBUG: Resolved postbackTarget = " + (pTarget != null ? pTarget : "null")
+                                                + "\n",
+                                        java.nio.file.StandardOpenOption.CREATE,
+                                        java.nio.file.StandardOpenOption.APPEND);
+                            } catch (Exception ignored) {
+                            }
                         }
 
                         if (pTarget != null && !pTarget.isEmpty()) {
                             context.portalRepository().postbackEventStandard("Summary.aspx", pTarget);
                         }
                     } catch (Exception e) {
-                        ErrorReporter.logError("CoursesTabView#loadCourseDataAndDashboard (select course via postback)", e);
+                        ErrorReporter.logError("CoursesTabView#loadCourseDataAndDashboard (select course via postback)",
+                                e);
                     }
                 }
 
@@ -635,7 +674,7 @@ public class CoursesTabView {
                 String procKey = PROC_PAGE + "_" + cleanCode;
                 String procHtml = null;
                 boolean procCompleted = false;
-                
+
                 if (!isOffline) {
                     try {
                         String rawProc = context.portalRepository().fetchPageHtml(PROC_PAGE);
@@ -648,17 +687,18 @@ public class CoursesTabView {
                         ErrorReporter.logError("CoursesTabView#loadCourseDataAndDashboard (live class proceedings)", e);
                     }
                 }
-                
+
                 if (procHtml == null) {
                     procHtml = context.dataCacheService().getCachedHtml(procKey).orElse(null);
                     if (procHtml != null) {
                         procCompleted = true;
                         if (!isOffline) {
-                            Platform.runLater(() -> context.notificationService().showError("Unable to retrieve latest data."));
+                            Platform.runLater(
+                                    () -> context.notificationService().showError("Unable to retrieve latest data."));
                         }
                     }
                 }
-                
+
                 if (procHtml == null) {
                     procHtml = context.dataCacheService().getCachedHtml(PROC_PAGE).orElse(null);
                 }
@@ -669,7 +709,7 @@ public class CoursesTabView {
                 String marksKey = MARKS_PAGE + "_" + cleanCode;
                 String mHtml = null;
                 boolean marksCompleted = false;
-                
+
                 if (!isOffline) {
                     try {
                         String rawMarks = context.portalRepository().fetchPageHtml(MARKS_PAGE);
@@ -682,13 +722,14 @@ public class CoursesTabView {
                         ErrorReporter.logError("CoursesTabView#loadCourseDataAndDashboard (live marks)", e);
                     }
                 }
-                
+
                 if (mHtml == null) {
                     mHtml = context.dataCacheService().getCachedHtml(marksKey).orElse(null);
                     if (mHtml != null) {
                         marksCompleted = true;
                         if (!isOffline) {
-                            Platform.runLater(() -> context.notificationService().showError("Unable to retrieve latest data."));
+                            Platform.runLater(
+                                    () -> context.notificationService().showError("Unable to retrieve latest data."));
                         }
                     } else {
                         for (String fb : MARKS_FALLBACKS) {
@@ -696,20 +737,22 @@ public class CoursesTabView {
                             if (mHtml != null) {
                                 marksCompleted = true;
                                 if (!isOffline) {
-                                    Platform.runLater(() -> context.notificationService().showError("Unable to retrieve latest data."));
+                                    Platform.runLater(() -> context.notificationService()
+                                            .showError("Unable to retrieve latest data."));
                                 }
                                 break;
                             }
                         }
                     }
                 }
-                
+
                 if (mHtml == null) {
                     mHtml = context.dataCacheService().getCachedHtml(MARKS_PAGE).orElse(null);
                     if (mHtml == null) {
                         for (String fb : MARKS_FALLBACKS) {
                             mHtml = context.dataCacheService().getCachedHtml(fb).orElse(null);
-                            if (mHtml != null) break;
+                            if (mHtml != null)
+                                break;
                         }
                     }
                 }
@@ -742,7 +785,8 @@ public class CoursesTabView {
         HBox breadcrumb = new HBox(8);
         breadcrumb.setAlignment(Pos.CENTER_LEFT);
         Button backBtn = new Button("← Back to My Courses");
-        backBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: -color-accent; -fx-font-weight: bold; -fx-cursor: hand; -fx-padding: 0;");
+        backBtn.setStyle(
+                "-fx-background-color: transparent; -fx-text-fill: -color-accent; -fx-font-weight: bold; -fx-cursor: hand; -fx-padding: 0;");
         backBtn.setOnAction(e -> {
             selectedCourse = null;
             loadLandingPage(false);
@@ -756,12 +800,13 @@ public class CoursesTabView {
 
         // SECTION 2: MODERN SEGMENT NAVIGATION CONTROLS
         HBox segmentedControl = new HBox(4);
-        segmentedControl.setStyle("-fx-background-color: -color-bg-card; -fx-padding: 4; -fx-background-radius: 8; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 8; -fx-max-width: 450;");
-        
+        segmentedControl.setStyle(
+                "-fx-background-color: -color-bg-card; -fx-padding: 4; -fx-background-radius: 8; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 8; -fx-max-width: 450;");
+
         Button overviewBtn = buildSegmentBtn("📊 Overview", "overview");
         Button attendanceBtn = buildSegmentBtn("📅 Attendance", "attendance");
         Button performanceBtn = buildSegmentBtn("📝 Performance", "performance");
-        
+
         segmentedControl.getChildren().addAll(overviewBtn, attendanceBtn, performanceBtn);
         layout.getChildren().add(segmentedControl);
 
@@ -776,7 +821,7 @@ public class CoursesTabView {
         } else {
             subTabContent.getChildren().add(buildPerformanceTab());
         }
-        
+
         layout.getChildren().add(subTabContent);
 
         ScrollPane sp = new ScrollPane(layout);
@@ -790,11 +835,11 @@ public class CoursesTabView {
         btn.getStyleClass().add("segment-btn");
         HBox.setHgrow(btn, Priority.ALWAYS);
         btn.setMaxWidth(Double.MAX_VALUE);
-        
+
         if (segmentKey.equals(activeSegment)) {
             btn.getStyleClass().add("segment-btn-active");
         }
-        
+
         btn.setOnAction(e -> {
             if (!activeSegment.equals(segmentKey)) {
                 activeSegment = segmentKey;
@@ -808,14 +853,13 @@ public class CoursesTabView {
     private VBox buildDashboardHeaderCard() {
         VBox card = new VBox(12);
         card.setStyle(
-            "-fx-background-color: -color-bg-card;" +
-            "-fx-background-radius: 16;" +
-            "-fx-border-color: -color-border;" +
-            "-fx-border-width: 1;" +
-            "-fx-border-radius: 16;" +
-            "-fx-padding: 20;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0, 70, 67, 0.03), 8, 0, 0, 4);"
-        );
+                "-fx-background-color: -color-bg-card;" +
+                        "-fx-background-radius: 16;" +
+                        "-fx-border-color: -color-border;" +
+                        "-fx-border-width: 1;" +
+                        "-fx-border-radius: 16;" +
+                        "-fx-padding: 20;" +
+                        "-fx-effect: dropshadow(three-pass-box, rgba(0, 70, 67, 0.03), 8, 0, 0, 4);");
 
         HBox mainRow = new HBox(20);
         mainRow.setAlignment(Pos.CENTER_LEFT);
@@ -823,11 +867,13 @@ public class CoursesTabView {
         VBox titleCol = new VBox(4);
         HBox codeRow = new HBox(8);
         codeRow.setAlignment(Pos.CENTER_LEFT);
-        
+
         Label code = new Label(selectedCourse.code);
-        code.setStyle("-fx-font-size: 10px; -fx-font-weight: bold; -fx-text-fill: -color-accent; -fx-background-color: rgba(0, 70, 67, 0.06); -fx-padding: 3 8; -fx-background-radius: 6;");
+        code.setStyle(
+                "-fx-font-size: 10px; -fx-font-weight: bold; -fx-text-fill: -color-accent; -fx-background-color: rgba(0, 70, 67, 0.06); -fx-padding: 3 8; -fx-background-radius: 6;");
         Label statusBadge = new Label("Active Status");
-        statusBadge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: #059669; -fx-background-color: #d1fae5; -fx-padding: 2 8; -fx-background-radius: 8;");
+        statusBadge.setStyle(
+                "-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: #059669; -fx-background-color: #d1fae5; -fx-padding: 2 8; -fx-background-radius: 8;");
         codeRow.getChildren().addAll(code, statusBadge);
 
         Label title = new Label(selectedCourse.title);
@@ -848,11 +894,15 @@ public class CoursesTabView {
         statsGrid.add(buildCompactStat("LECTURES", selectedCourse.totalClasses), 0, 0);
         statsGrid.add(buildCompactStat("PRESENTS", selectedCourse.presents), 1, 0);
         statsGrid.add(buildCompactStat("ABSENTS", selectedCourse.absents), 2, 0);
-        
+
         double attPct = 0.0;
-        try { attPct = Double.parseDouble(selectedCourse.percentage.replace("%","")); } catch(Exception ignored){}
+        try {
+            attPct = Double.parseDouble(selectedCourse.percentage.replace("%", ""));
+        } catch (Exception ignored) {
+        }
         VBox pctBox = buildCompactStat("ATTENDANCE %", selectedCourse.percentage);
-        pctBox.getChildren().get(1).setStyle("-fx-font-size: 18px; -fx-font-weight: 800; -fx-text-fill: " + (attPct < 75.0 ? "#dc2626;" : "-color-accent;"));
+        pctBox.getChildren().get(1).setStyle("-fx-font-size: 18px; -fx-font-weight: 800; -fx-text-fill: "
+                + (attPct < 75.0 ? "#dc2626;" : "-color-accent;"));
         statsGrid.add(pctBox, 3, 0);
 
         mainRow.getChildren().addAll(titleCol, statsGrid);
@@ -863,13 +913,14 @@ public class CoursesTabView {
     private VBox buildCompactStat(String header, String val) {
         VBox box = new VBox(2);
         box.setAlignment(Pos.CENTER);
-        box.setStyle("-fx-background-color: -color-bg-main; -fx-padding: 8 16; -fx-background-radius: 8; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 8; -fx-min-width: 90;");
-        
+        box.setStyle(
+                "-fx-background-color: -color-bg-main; -fx-padding: 8 16; -fx-background-radius: 8; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 8; -fx-min-width: 90;");
+
         Label h = new Label(header);
         h.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: -color-text-muted;");
         Label v = new Label(val);
         v.setStyle("-fx-font-size: 16px; -fx-font-weight: 800; -fx-text-fill: -color-text-main;");
-        
+
         box.getChildren().addAll(h, v);
         return box;
     }
@@ -884,7 +935,8 @@ public class CoursesTabView {
 
         // Course Info Card
         VBox infoCard = new VBox(12);
-        infoCard.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12; -fx-padding: 20;");
+        infoCard.setStyle(
+                "-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12; -fx-padding: 20;");
         HBox.setHgrow(infoCard, Priority.ALWAYS);
 
         Label title = new Label("📘 Course Details");
@@ -892,17 +944,17 @@ public class CoursesTabView {
 
         VBox infoList = new VBox(8);
         infoList.getChildren().addAll(
-            buildInfoRow("Course Title:", selectedCourse.title),
-            buildInfoRow("Course Code:", selectedCourse.code),
-            buildInfoRow("Faculty Instructor:", selectedCourse.faculty),
-            buildInfoRow("Class Section:", selectedCourse.className)
-        );
+                buildInfoRow("Course Title:", selectedCourse.title),
+                buildInfoRow("Course Code:", selectedCourse.code),
+                buildInfoRow("Faculty Instructor:", selectedCourse.faculty),
+                buildInfoRow("Class Section:", selectedCourse.className));
 
         infoCard.getChildren().addAll(title, infoList);
 
         // Attendance Summary Card
         VBox attSummaryCard = new VBox(12);
-        attSummaryCard.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12; -fx-padding: 20;");
+        attSummaryCard.setStyle(
+                "-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12; -fx-padding: 20;");
         HBox.setHgrow(attSummaryCard, Priority.ALWAYS);
 
         Label title2 = new Label("📊 Attendance Statistics");
@@ -910,24 +962,27 @@ public class CoursesTabView {
 
         VBox attList = new VBox(8);
         attList.getChildren().addAll(
-            buildInfoRow("Total Lectures:", selectedCourse.totalClasses),
-            buildInfoRow("Presents:", selectedCourse.presents),
-            buildInfoRow("Absents:", selectedCourse.absents)
-        );
+                buildInfoRow("Total Lectures:", selectedCourse.totalClasses),
+                buildInfoRow("Presents:", selectedCourse.presents),
+                buildInfoRow("Absents:", selectedCourse.absents));
 
         // Progress bar for Theory Attendance %
         double theoryPctVal = Double.NaN;
-        boolean hasTheory = selectedCourse.theoryPercentage != null && !selectedCourse.theoryPercentage.equalsIgnoreCase("N/A") && !selectedCourse.theoryPercentage.isBlank();
+        boolean hasTheory = selectedCourse.theoryPercentage != null
+                && !selectedCourse.theoryPercentage.equalsIgnoreCase("N/A")
+                && !selectedCourse.theoryPercentage.isBlank();
         if (hasTheory) {
             try {
                 theoryPctVal = Double.parseDouble(selectedCourse.theoryPercentage.replace("%", "").trim());
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         VBox theoryProgressBox = new VBox(4);
         HBox theoryHeaderRow = new HBox(8);
         Label theoryLabel = new Label("Theory Attendance:");
-        theoryLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500; -fx-min-width: 160;");
+        theoryLabel.setStyle(
+                "-fx-font-size: 11px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500; -fx-min-width: 160;");
         Label theoryValue = new Label(selectedCourse.theoryPercentage);
         theoryValue.setStyle("-fx-font-size: 12px; -fx-text-fill: -color-text-main; -fx-font-weight: bold;");
         theoryHeaderRow.getChildren().addAll(theoryLabel, theoryValue);
@@ -936,24 +991,28 @@ public class CoursesTabView {
         if (!Double.isNaN(theoryPctVal)) {
             ProgressBar theoryPb = new ProgressBar(theoryPctVal / 100.0);
             theoryPb.setMaxWidth(Double.MAX_VALUE);
-            theoryPb.setStyle("-fx-accent: -color-accent; -fx-pref-height: 6px; -fx-min-height: 6px; -fx-max-height: 6px;");
+            theoryPb.setStyle(
+                    "-fx-accent: -color-accent; -fx-pref-height: 6px; -fx-min-height: 6px; -fx-max-height: 6px;");
             theoryProgressBox.getChildren().add(theoryPb);
         }
         attList.getChildren().add(theoryProgressBox);
 
         // Progress bar for Lab Attendance %
         double labPctVal = Double.NaN;
-        boolean hasLab = selectedCourse.labPercentage != null && !selectedCourse.labPercentage.equalsIgnoreCase("N/A") && !selectedCourse.labPercentage.isBlank();
+        boolean hasLab = selectedCourse.labPercentage != null && !selectedCourse.labPercentage.equalsIgnoreCase("N/A")
+                && !selectedCourse.labPercentage.isBlank();
         if (hasLab) {
             try {
                 labPctVal = Double.parseDouble(selectedCourse.labPercentage.replace("%", "").trim());
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         VBox labProgressBox = new VBox(4);
         HBox labHeaderRow = new HBox(8);
         Label labLabel = new Label("Lab Attendance:");
-        labLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500; -fx-min-width: 160;");
+        labLabel.setStyle(
+                "-fx-font-size: 11px; -fx-text-fill: -color-text-muted; -fx-font-weight: 500; -fx-min-width: 160;");
         Label labValue = new Label(selectedCourse.labPercentage);
         labValue.setStyle("-fx-font-size: 12px; -fx-text-fill: -color-text-main; -fx-font-weight: bold;");
         labHeaderRow.getChildren().addAll(labLabel, labValue);
@@ -994,17 +1053,20 @@ public class CoursesTabView {
         // OVERALL RADIAL STATS CONTAINER (Maintains visibility at top)
         HBox radialSummary = new HBox(20);
         radialSummary.setAlignment(Pos.CENTER_LEFT);
-        radialSummary.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12; -fx-padding: 16;");
-        
+        radialSummary.setStyle(
+                "-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12; -fx-padding: 16;");
+
         double attVal = Double.NaN;
         boolean attExists = false;
-        if (selectedCourse.percentage != null && !selectedCourse.percentage.equalsIgnoreCase("N/A") && !selectedCourse.percentage.isBlank()) {
+        if (selectedCourse.percentage != null && !selectedCourse.percentage.equalsIgnoreCase("N/A")
+                && !selectedCourse.percentage.isBlank()) {
             try {
                 attVal = Double.parseDouble(selectedCourse.percentage.replace("%", "").trim());
                 attExists = !Double.isNaN(attVal);
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
-        
+
         ProgressIndicator progressCircle = new ProgressIndicator(attExists ? attVal / 100.0 : -1.0);
         progressCircle.setMinSize(64, 64);
         progressCircle.setMaxSize(64, 64);
@@ -1018,15 +1080,20 @@ public class CoursesTabView {
         rateCol.setAlignment(Pos.CENTER_LEFT);
         Label pctLbl = new Label((attExists ? selectedCourse.percentage : "N/A") + " Presence Rate");
         pctLbl.setStyle("-fx-font-size: 16px; -fx-font-weight: 800; -fx-text-fill: -color-text-main;");
-        
+
         Label statusLbl = new Label();
         statusLbl.setStyle("-fx-text-fill: -color-text-muted; -fx-font-size: 11px; -fx-font-weight: bold;");
-        String detailsStr = String.format("Total Lectures: %s  •  Presents: %s  •  Absents: %s", selectedCourse.totalClasses, selectedCourse.presents, selectedCourse.absents);
-        boolean hasTheory = selectedCourse.theoryPercentage != null && !selectedCourse.theoryPercentage.equalsIgnoreCase("N/A") && !selectedCourse.theoryPercentage.isBlank();
-        boolean hasLab = selectedCourse.labPercentage != null && !selectedCourse.labPercentage.equalsIgnoreCase("N/A") && !selectedCourse.labPercentage.isBlank();
+        String detailsStr = String.format("Total Lectures: %s  •  Presents: %s  •  Absents: %s",
+                selectedCourse.totalClasses, selectedCourse.presents, selectedCourse.absents);
+        boolean hasTheory = selectedCourse.theoryPercentage != null
+                && !selectedCourse.theoryPercentage.equalsIgnoreCase("N/A")
+                && !selectedCourse.theoryPercentage.isBlank();
+        boolean hasLab = selectedCourse.labPercentage != null && !selectedCourse.labPercentage.equalsIgnoreCase("N/A")
+                && !selectedCourse.labPercentage.isBlank();
         if (hasTheory) {
             if (hasLab) {
-                detailsStr += String.format("  •  Theory: %s  •  Lab: %s", selectedCourse.theoryPercentage, selectedCourse.labPercentage);
+                detailsStr += String.format("  •  Theory: %s  •  Lab: %s", selectedCourse.theoryPercentage,
+                        selectedCourse.labPercentage);
             } else {
                 detailsStr += String.format("  •  Theory: %s", selectedCourse.theoryPercentage);
             }
@@ -1106,13 +1173,16 @@ public class CoursesTabView {
 
     private void populateTimeline(VBox container, List<LectureEntry> lectures) {
         container.getChildren().clear();
-        
+
         List<LectureEntry> filtered = new ArrayList<>();
         for (LectureEntry l : lectures) {
-            boolean matchesSearch = attendanceSearchQuery.isEmpty() || l.topic.toLowerCase().contains(attendanceSearchQuery.toLowerCase());
-            boolean matchesPresent = !filterPresentOnly || "P".equalsIgnoreCase(l.status) || "Present".equalsIgnoreCase(l.status);
-            boolean matchesAbsent = !filterAbsentOnly || "A".equalsIgnoreCase(l.status) || "Absent".equalsIgnoreCase(l.status);
-            
+            boolean matchesSearch = attendanceSearchQuery.isEmpty()
+                    || l.topic.toLowerCase().contains(attendanceSearchQuery.toLowerCase());
+            boolean matchesPresent = !filterPresentOnly || "P".equalsIgnoreCase(l.status)
+                    || "Present".equalsIgnoreCase(l.status);
+            boolean matchesAbsent = !filterAbsentOnly || "A".equalsIgnoreCase(l.status)
+                    || "Absent".equalsIgnoreCase(l.status);
+
             if (matchesSearch && matchesPresent && matchesAbsent) {
                 filtered.add(l);
             }
@@ -1162,7 +1232,7 @@ public class CoursesTabView {
 
         for (int i = 0; i < filtered.size(); i++) {
             LectureEntry l = filtered.get(i);
-            
+
             HBox itemRow = new HBox(12);
             itemRow.setAlignment(Pos.TOP_LEFT);
             itemRow.setPadding(new Insets(0, 0, 10, 0));
@@ -1170,16 +1240,16 @@ public class CoursesTabView {
             // Left graphic indicator: status dot + line
             VBox dotLineCol = new VBox(0);
             dotLineCol.setAlignment(Pos.TOP_CENTER);
-            
+
             Label dot = new Label("●");
             boolean isP = "P".equalsIgnoreCase(l.status) || "Present".equalsIgnoreCase(l.status);
             dot.setStyle("-fx-font-size: 16px; -fx-text-fill: " + (isP ? "#059669;" : "#dc2626;"));
-            
+
             Region line = new Region();
             line.getStyleClass().add("timeline-line");
             VBox.setVgrow(line, Priority.ALWAYS);
             line.setMinHeight(20);
-            
+
             dotLineCol.getChildren().add(dot);
             if (i < filtered.size() - 1) {
                 dotLineCol.getChildren().add(line);
@@ -1194,7 +1264,7 @@ public class CoursesTabView {
             header.setAlignment(Pos.CENTER_LEFT);
             Label name = new Label("Lecture " + l.lectureNo);
             name.setStyle("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: -color-text-main;");
-            
+
             Region sp = new Region();
             HBox.setHgrow(sp, Priority.ALWAYS);
 
@@ -1202,8 +1272,10 @@ public class CoursesTabView {
             date.setStyle("-fx-font-size: 11px; -fx-text-fill: -color-text-muted;");
 
             Label badge = new Label(isP ? "Present" : "Absent");
-            badge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: " + (isP ? "#059669;" : "#dc2626;") + " -fx-background-color: " + (isP ? "#d1fae5;" : "#fee2e2;") + " -fx-padding: 2 8; -fx-background-radius: 8;");
-            
+            badge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: "
+                    + (isP ? "#059669;" : "#dc2626;") + " -fx-background-color: " + (isP ? "#d1fae5;" : "#fee2e2;")
+                    + " -fx-padding: 2 8; -fx-background-radius: 8;");
+
             header.getChildren().addAll(name, date, sp, badge);
 
             Label topic = new Label(l.topic);
@@ -1211,7 +1283,7 @@ public class CoursesTabView {
             topic.setWrapText(true);
 
             timelineCard.getChildren().addAll(header, topic);
-            
+
             itemRow.getChildren().addAll(dotLineCol, timelineCard);
             container.getChildren().add(itemRow);
         }
@@ -1227,45 +1299,57 @@ public class CoursesTabView {
             VBox notCompletedBox = new VBox(12);
             notCompletedBox.setAlignment(Pos.CENTER);
             notCompletedBox.setPadding(new Insets(40));
-            notCompletedBox.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12;");
-            
+            notCompletedBox.setStyle(
+                    "-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12;");
+
             Label icon = new Label("⚠");
             icon.setStyle("-fx-font-size: 24px; -fx-text-fill: -color-text-muted;");
             Label lbl = new Label("QAMarks request did not complete.");
             lbl.setStyle("-fx-font-size: 13px; -fx-text-fill: -color-text-muted; -fx-font-weight: bold;");
             notCompletedBox.getChildren().addAll(icon, lbl);
-            
+
             tab.getChildren().add(notCompletedBox);
             return tab;
         }
 
         List<MarksCategory> categories = parseMarksCategories(marksHtml);
 
-        VBox quizSection = buildCategorySection("📚 Quiz Marks", categories, "Quizzes", "No quiz records available.", "-color-accent");
-        VBox assignSection = buildCategorySection("📝 Assignment Marks", categories, "Assignments", "No assignment records available.", "#14b8a6");
-        VBox sessSection = buildCategorySection("📊 Sessional Marks", categories, "Sessionals", "No sessional marks available.", "#f59e0b");
-        VBox midSection = buildCategorySection("⌛ Mid Term Marks", categories, "Mid Term", "No mid term marks available.", "#3b82f6");
-        VBox finalSection = buildCategorySection("🏆 Final Exam Marks", categories, "Final Exam", "No final marks available.", "#8b5cf6");
+        VBox quizSection = buildCategorySection("📚 Quiz Marks", categories, "Quizzes", "No quiz records available.",
+                "-color-accent");
+        VBox assignSection = buildCategorySection("📝 Assignment Marks", categories, "Assignments",
+                "No assignment records available.", "#14b8a6");
+        VBox sessSection = buildCategorySection("📊 Sessional Marks", categories, "Sessionals",
+                "No sessional marks available.", "#f59e0b");
+        VBox midSection = buildCategorySection("⌛ Mid Term Marks", categories, "Mid Term",
+                "No mid term marks available.", "#3b82f6");
+        VBox finalSection = buildCategorySection("🏆 Final Exam Marks", categories, "Final Exam",
+                "No final marks available.", "#8b5cf6");
 
         List<VBox> activeCards = new ArrayList<>();
-        if (quizSection != null) activeCards.add(quizSection);
-        if (assignSection != null) activeCards.add(assignSection);
-        if (sessSection != null) activeCards.add(sessSection);
-        if (midSection != null) activeCards.add(midSection);
-        if (finalSection != null) activeCards.add(finalSection);
+        if (quizSection != null)
+            activeCards.add(quizSection);
+        if (assignSection != null)
+            activeCards.add(assignSection);
+        if (sessSection != null)
+            activeCards.add(sessSection);
+        if (midSection != null)
+            activeCards.add(midSection);
+        if (finalSection != null)
+            activeCards.add(finalSection);
 
         if (activeCards.isEmpty()) {
             VBox emptyBox = new VBox(12);
             emptyBox.setAlignment(Pos.CENTER);
             emptyBox.setPadding(new Insets(40));
-            emptyBox.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12;");
-            
+            emptyBox.setStyle(
+                    "-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12;");
+
             Label icon = new Label("📝");
             icon.setStyle("-fx-font-size: 24px;");
             Label lbl = new Label("No Marks Records Available");
             lbl.setStyle("-fx-font-size: 13px; -fx-text-fill: -color-text-muted; -fx-font-weight: bold;");
             emptyBox.getChildren().addAll(icon, lbl);
-            
+
             tab.getChildren().add(emptyBox);
             return tab;
         }
@@ -1288,7 +1372,7 @@ public class CoursesTabView {
             GridPane grid = new GridPane();
             grid.setHgap(20);
             grid.setVgap(20);
-            
+
             ColumnConstraints col1 = new ColumnConstraints();
             col1.setPercentWidth(50);
             ColumnConstraints col2 = new ColumnConstraints();
@@ -1307,17 +1391,24 @@ public class CoursesTabView {
         return tab;
     }
 
-    private VBox buildCategorySection(String title, List<MarksCategory> categories, String name, String emptyMessage, String colorTheme) {
+    private VBox buildCategorySection(String title, List<MarksCategory> categories, String name, String emptyMessage,
+            String colorTheme) {
         MarksCategory matched = null;
         for (MarksCategory c : categories) {
             String catName = c.categoryName.toLowerCase();
             boolean match = false;
-            if (name.equals("Quizzes") && catName.contains("quiz")) match = true;
-            else if (name.equals("Assignments") && catName.contains("assign")) match = true;
-            else if (name.equals("Sessionals") && catName.contains("sess")) match = true;
-            else if (name.equals("Mid Term") && catName.contains("mid")) match = true;
-            else if (name.equals("Final Exam") && (catName.contains("final") || (catName.contains("term") && !catName.contains("mid")))) match = true;
-            
+            if (name.equals("Quizzes") && catName.contains("quiz"))
+                match = true;
+            else if (name.equals("Assignments") && catName.contains("assign"))
+                match = true;
+            else if (name.equals("Sessionals") && catName.contains("sess"))
+                match = true;
+            else if (name.equals("Mid Term") && catName.contains("mid"))
+                match = true;
+            else if (name.equals("Final Exam")
+                    && (catName.contains("final") || (catName.contains("term") && !catName.contains("mid"))))
+                match = true;
+
             if (match) {
                 if (matched == null) {
                     matched = new MarksCategory();
@@ -1334,9 +1425,10 @@ public class CoursesTabView {
         }
 
         VBox card = new VBox(12);
-        card.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12; -fx-padding: 16;");
+        card.setStyle(
+                "-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12; -fx-padding: 16;");
         HBox.setHgrow(card, Priority.ALWAYS);
-        
+
         Label t = new Label(title);
         t.setStyle("-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -color-text-main;");
         card.getChildren().add(t);
@@ -1344,22 +1436,23 @@ public class CoursesTabView {
         VBox list = new VBox(10);
         for (MarkItem item : matched.items) {
             VBox row = new VBox(4);
-            row.setStyle("-fx-background-color: -color-bg-main; -fx-padding: 8 12; -fx-background-radius: 8; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 8;");
-            
+            row.setStyle(
+                    "-fx-background-color: -color-bg-main; -fx-padding: 8 12; -fx-background-radius: 8; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 8;");
+
             HBox top = new HBox(8);
             top.setAlignment(Pos.CENTER_LEFT);
-            
+
             VBox labelCol = new VBox(2);
             Label titleLbl = new Label(item.title);
             titleLbl.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: -color-text-main;");
             labelCol.getChildren().add(titleLbl);
-            
+
             if (item.date != null && !item.date.isBlank()) {
                 Label dateLbl = new Label("📅 " + item.date);
                 dateLbl.setStyle("-fx-font-size: 9px; -fx-text-fill: -color-text-muted;");
                 labelCol.getChildren().add(dateLbl);
             }
-            
+
             Region sp = new Region();
             HBox.setHgrow(sp, Priority.ALWAYS);
 
@@ -1367,10 +1460,15 @@ public class CoursesTabView {
             marks.setStyle("-fx-font-size: 10px; -fx-text-fill: -color-text-muted; -fx-font-weight: bold;");
 
             double pct = 0.0;
-            try { pct = Double.parseDouble(item.percentage.replace("%","")); } catch(Exception ignored){}
-            
+            try {
+                pct = Double.parseDouble(item.percentage.replace("%", ""));
+            } catch (Exception ignored) {
+            }
+
             Label badge = new Label(item.percentage);
-            badge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: " + (pct < 60.0 ? "#dc2626;" : "#059669;") + " -fx-background-color: " + (pct < 60.0 ? "#fee2e2;" : "#d1fae5;") + " -fx-padding: 2 6; -fx-background-radius: 6;");
+            badge.setStyle("-fx-font-size: 9px; -fx-font-weight: bold; -fx-text-fill: "
+                    + (pct < 60.0 ? "#dc2626;" : "#059669;") + " -fx-background-color: "
+                    + (pct < 60.0 ? "#fee2e2;" : "#d1fae5;") + " -fx-padding: 2 6; -fx-background-radius: 6;");
 
             top.getChildren().addAll(labelCol, sp, marks, badge);
 
@@ -1379,7 +1477,8 @@ public class CoursesTabView {
             pb.setPrefHeight(4);
             pb.setMinHeight(4);
             pb.setMaxHeight(4);
-            pb.setStyle("-fx-accent: " + colorTheme + "; -fx-pref-height: 4px; -fx-min-height: 4px; -fx-max-height: 4px;");
+            pb.setStyle(
+                    "-fx-accent: " + colorTheme + "; -fx-pref-height: 4px; -fx-min-height: 4px; -fx-max-height: 4px;");
 
             row.getChildren().addAll(top, pb);
             list.getChildren().add(row);
@@ -1396,15 +1495,19 @@ public class CoursesTabView {
 
     public static List<CourseSummary> parseSummaryCourses(String html, Map<String, String> courseNames) {
         List<CourseSummary> list = new ArrayList<>();
-        if (html == null || html.isBlank()) return list;
+        if (html == null || html.isBlank())
+            return list;
         Document doc = Jsoup.parse(html);
 
         for (Element table : doc.select("table")) {
             String tt = table.text().toLowerCase();
-            if (tt.contains("father name") && tt.contains("roll no")) continue;
-            if (tt.contains("cnic") && tt.contains("date of birth")) continue;
+            if (tt.contains("father name") && tt.contains("roll no"))
+                continue;
+            if (tt.contains("cnic") && tt.contains("date of birth"))
+                continue;
             Elements rows = table.select("tr");
-            if (rows.size() < 2) continue;
+            if (rows.size() < 2)
+                continue;
 
             Element hdr = null;
             int hdrIdx = -1;
@@ -1415,34 +1518,56 @@ public class CoursesTabView {
                     break;
                 }
             }
-            if (hdr == null) continue;
+            if (hdr == null)
+                continue;
 
             Elements ths = hdr.select("th, td");
             List<String> headers = new ArrayList<>();
-            for (Element c : ths) headers.add(c.text().trim().toLowerCase());
+            for (Element c : ths)
+                headers.add(c.text().trim().toLowerCase());
 
-            int codeIdx = -1, titleIdx = -1, classIdx = -1, facIdx = -1, totIdx = -1, presIdx = -1, absIdx = -1, thyIdx = -1, labIdx = -1, pctIdx = -1;
+            int codeIdx = -1, titleIdx = -1, classIdx = -1, facIdx = -1, totIdx = -1, presIdx = -1, absIdx = -1,
+                    thyIdx = -1, labIdx = -1, pctIdx = -1;
             for (int i = 0; i < headers.size(); i++) {
                 String h = headers.get(i);
-                if (h.contains("code")) codeIdx = i;
-                else if (h.contains("title") || h.contains("subject")) titleIdx = i;
-                else if (h.equals("class")) classIdx = i;
-                else if (h.contains("faculty") || h.contains("teacher") || h.contains("member")) facIdx = i;
-                else if (h.contains("lectures") || h.contains("total")) totIdx = i;
-                else if (h.equals("p") || h.contains("present")) presIdx = i;
-                else if (h.equals("a") || h.contains("absent")) absIdx = i;
-                else if (h.contains("thy%") || h.equals("thy")) thyIdx = i;
-                else if (h.contains("lab%") || h.equals("lab")) labIdx = i;
-                else if (h.contains("percentage") || h.contains("%")) pctIdx = i;
+                if (h.contains("code"))
+                    codeIdx = i;
+                else if (h.contains("title") || h.contains("subject"))
+                    titleIdx = i;
+                else if (h.equals("class"))
+                    classIdx = i;
+                else if (h.contains("faculty") || h.contains("teacher") || h.contains("member"))
+                    facIdx = i;
+                else if (h.contains("lectures") || h.contains("total"))
+                    totIdx = i;
+                else if (h.equals("p") || h.contains("present"))
+                    presIdx = i;
+                else if (h.equals("a") || h.contains("absent"))
+                    absIdx = i;
+                else if (h.contains("thy%") || h.equals("thy"))
+                    thyIdx = i;
+                else if (h.contains("lab%") || h.equals("lab"))
+                    labIdx = i;
+                else if (h.contains("percentage") || h.contains("%"))
+                    pctIdx = i;
             }
 
             if (codeIdx == -1 && titleIdx == -1) {
-                codeIdx = -1; titleIdx = 1; classIdx = 2; facIdx = 3; totIdx = 4; presIdx = 5; absIdx = 6; thyIdx = 7; labIdx = 8;
+                codeIdx = -1;
+                titleIdx = 1;
+                classIdx = 2;
+                facIdx = 3;
+                totIdx = 4;
+                presIdx = 5;
+                absIdx = 6;
+                thyIdx = 7;
+                labIdx = 8;
             }
 
             for (int r = hdrIdx + 1; r < rows.size(); r++) {
                 Elements cells = rows.get(r).select("td");
-                if (cells.size() <= Math.max(codeIdx, titleIdx)) continue;
+                if (cells.size() <= Math.max(codeIdx, titleIdx))
+                    continue;
 
                 CourseSummary cs = new CourseSummary();
                 cs.serial = String.valueOf(r - hdrIdx);
@@ -1455,10 +1580,12 @@ public class CoursesTabView {
                 cs.absents = absIdx >= 0 && absIdx < cells.size() ? cells.get(absIdx).text().trim() : "0";
                 cs.theoryPercentage = thyIdx >= 0 && thyIdx < cells.size() ? cells.get(thyIdx).text().trim() : "N/A";
                 cs.labPercentage = labIdx >= 0 && labIdx < cells.size() ? cells.get(labIdx).text().trim() : "N/A";
-                
-                boolean hasTheory = cs.theoryPercentage != null && !cs.theoryPercentage.equalsIgnoreCase("N/A") && !cs.theoryPercentage.isBlank();
-                boolean hasLab = cs.labPercentage != null && !cs.labPercentage.equalsIgnoreCase("N/A") && !cs.labPercentage.isBlank();
-                
+
+                boolean hasTheory = cs.theoryPercentage != null && !cs.theoryPercentage.equalsIgnoreCase("N/A")
+                        && !cs.theoryPercentage.isBlank();
+                boolean hasLab = cs.labPercentage != null && !cs.labPercentage.equalsIgnoreCase("N/A")
+                        && !cs.labPercentage.isBlank();
+
                 if (hasTheory && hasLab) {
                     try {
                         double thy = Double.parseDouble(cs.theoryPercentage.replace("%", "").trim());
@@ -1487,7 +1614,8 @@ public class CoursesTabView {
                     cs.code = parts[0].trim();
                     cs.title = parts[1].trim();
                 } else if (cs.code.isEmpty() && !cs.title.isEmpty()) {
-                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("^([A-Za-z]{2,4}-?\\d{3})[\\s\\-•]*(.*)$").matcher(cs.title);
+                    java.util.regex.Matcher m = java.util.regex.Pattern
+                            .compile("^([A-Za-z]{2,4}-?\\d{3})[\\s\\-•]*(.*)$").matcher(cs.title);
                     if (m.find()) {
                         cs.code = m.group(1).trim();
                         cs.title = m.group(2).trim();
@@ -1495,8 +1623,10 @@ public class CoursesTabView {
                 }
 
                 Element aTag = null;
-                if (titleIdx >= 0 && titleIdx < cells.size()) aTag = cells.get(titleIdx).select("a").first();
-                if (aTag == null && codeIdx >= 0 && codeIdx < cells.size()) aTag = cells.get(codeIdx).select("a").first();
+                if (titleIdx >= 0 && titleIdx < cells.size())
+                    aTag = cells.get(titleIdx).select("a").first();
+                if (aTag == null && codeIdx >= 0 && codeIdx < cells.size())
+                    aTag = cells.get(codeIdx).select("a").first();
                 if (aTag != null && aTag.attr("href").contains("__doPostBack")) {
                     String href = aTag.attr("href");
                     int start = href.indexOf("'") + 1;
@@ -1518,13 +1648,15 @@ public class CoursesTabView {
     }
 
     public static void resolveCourseCodes(List<CourseSummary> courses, Map<String, String> courseNames) {
-        if (courses == null || courseNames == null || courseNames.isEmpty()) return;
+        if (courses == null || courseNames == null || courseNames.isEmpty())
+            return;
         for (CourseSummary cs : courses) {
             if (cs.code == null || cs.code.isEmpty()) {
                 String cleanTitle = cs.title.trim().toLowerCase().replaceAll("\\s+|-|•|–", "");
                 for (Map.Entry<String, String> entry : courseNames.entrySet()) {
                     String cleanMapVal = entry.getValue().trim().toLowerCase().replaceAll("\\s+|-|•|–", "");
-                    if (!cleanMapVal.isEmpty() && (cleanMapVal.contains(cleanTitle) || cleanTitle.contains(cleanMapVal))) {
+                    if (!cleanMapVal.isEmpty()
+                            && (cleanMapVal.contains(cleanTitle) || cleanTitle.contains(cleanMapVal))) {
                         cs.code = entry.getKey();
                         break;
                     }
@@ -1535,38 +1667,50 @@ public class CoursesTabView {
 
     private List<LectureEntry> parseProceedings(String html) {
         List<LectureEntry> list = new ArrayList<>();
-        if (html == null || html.isBlank()) return list;
+        if (html == null || html.isBlank())
+            return list;
         Document doc = Jsoup.parse(html);
 
         for (Element table : doc.select("table")) {
             Elements rows = table.select("tr");
-            if (rows.size() < 2) continue;
+            if (rows.size() < 2)
+                continue;
             Element hdr = rows.first();
             String hdrText = hdr.text().toLowerCase();
-            if (hdrText.contains("lecture") || hdrText.contains("date") || hdrText.contains("topic") || hdrText.contains("status")) {
+            if (hdrText.contains("lecture") || hdrText.contains("date") || hdrText.contains("topic")
+                    || hdrText.contains("status")) {
                 Elements ths = hdr.select("th, td");
                 List<String> headers = new ArrayList<>();
-                for (Element c : ths) headers.add(c.text().trim().toLowerCase());
+                for (Element c : ths)
+                    headers.add(c.text().trim().toLowerCase());
 
                 int numIdx = -1, dateIdx = -1, durIdx = -1, topicIdx = -1, statusIdx = -1;
                 for (int i = 0; i < headers.size(); i++) {
                     String h = headers.get(i);
-                    if (h.contains("lecture") || h.contains("s#") || h.equals("s")) numIdx = i;
-                    else if (h.contains("date")) dateIdx = i;
-                    else if (h.contains("duration")) durIdx = i;
-                    else if (h.contains("topic") || h.contains("particular") || h.contains("description")) topicIdx = i;
-                    else if (h.contains("status")) statusIdx = i;
+                    if (h.contains("lecture") || h.contains("s#") || h.equals("s"))
+                        numIdx = i;
+                    else if (h.contains("date"))
+                        dateIdx = i;
+                    else if (h.contains("duration"))
+                        durIdx = i;
+                    else if (h.contains("topic") || h.contains("particular") || h.contains("description"))
+                        topicIdx = i;
+                    else if (h.contains("status"))
+                        statusIdx = i;
                 }
 
                 for (int r = 1; r < rows.size(); r++) {
                     Elements cells = rows.get(r).select("td");
-                    if (cells.size() <= Math.max(numIdx, dateIdx)) continue;
+                    if (cells.size() <= Math.max(numIdx, dateIdx))
+                        continue;
 
                     LectureEntry le = new LectureEntry();
-                    le.lectureNo = numIdx >= 0 && numIdx < cells.size() ? cells.get(numIdx).text().trim() : String.valueOf(r);
+                    le.lectureNo = numIdx >= 0 && numIdx < cells.size() ? cells.get(numIdx).text().trim()
+                            : String.valueOf(r);
                     le.date = dateIdx >= 0 && dateIdx < cells.size() ? cells.get(dateIdx).text().trim() : "";
                     le.duration = durIdx >= 0 && durIdx < cells.size() ? cells.get(durIdx).text().trim() : "";
-                    le.topic = topicIdx >= 0 && topicIdx < cells.size() ? cells.get(topicIdx).text().trim() : "No Topic Specified";
+                    le.topic = topicIdx >= 0 && topicIdx < cells.size() ? cells.get(topicIdx).text().trim()
+                            : "No Topic Specified";
                     le.status = statusIdx >= 0 && statusIdx < cells.size() ? cells.get(statusIdx).text().trim() : "";
 
                     if (!le.date.isEmpty()) {
@@ -1580,12 +1724,14 @@ public class CoursesTabView {
 
     public static List<MarksCategory> parseMarksCategories(String html) {
         List<MarksCategory> list = new ArrayList<>();
-        if (html == null || html.isBlank()) return list;
+        if (html == null || html.isBlank())
+            return list;
         Document doc = Jsoup.parse(html);
 
         for (Element table : doc.select("table")) {
             Elements rows = table.select("tr");
-            if (rows.size() < 2) continue;
+            if (rows.size() < 2)
+                continue;
 
             Element hdrRow = null;
             int hdrIdx = -1;
@@ -1601,11 +1747,13 @@ public class CoursesTabView {
                     break;
                 }
             }
-            if (hdrRow == null) continue;
+            if (hdrRow == null)
+                continue;
 
             Elements ths = hdrRow.select("th, td");
             List<String> headers = new ArrayList<>();
-            for (Element c : ths) headers.add(c.text().trim().toLowerCase());
+            for (Element c : ths)
+                headers.add(c.text().trim().toLowerCase());
 
             // Skip profile info tables
             boolean skip = false;
@@ -1615,46 +1763,61 @@ public class CoursesTabView {
                     break;
                 }
             }
-            if (skip) continue;
+            if (skip)
+                continue;
 
             int titleIdx = -1, dateIdx = -1, totalIdx = -1, obtIdx = -1, pctIdx = -1;
             for (int i = 0; i < headers.size(); i++) {
                 String h = headers.get(i);
-                if (h.contains("quiz") || h.contains("assignment") || h.contains("particular") || h.contains("topic") || h.contains("title") || h.contains("subject") || h.contains("name")) titleIdx = i;
-                else if (h.contains("date")) dateIdx = i;
-                else if (h.contains("total") || h.contains("max")) totalIdx = i;
+                if (h.contains("quiz") || h.contains("assignment") || h.contains("particular") || h.contains("topic")
+                        || h.contains("title") || h.contains("subject") || h.contains("name"))
+                    titleIdx = i;
+                else if (h.contains("date"))
+                    dateIdx = i;
+                else if (h.contains("total") || h.contains("max"))
+                    totalIdx = i;
                 else if (h.contains("obtain") || h.contains("obt") || h.contains("marks")) {
-                    if (!h.contains("total")) obtIdx = i;
-                }
-                else if (h.contains("percentage") || h.contains("%")) pctIdx = i;
+                    if (!h.contains("total"))
+                        obtIdx = i;
+                } else if (h.contains("percentage") || h.contains("%"))
+                    pctIdx = i;
             }
 
             if (titleIdx >= 0) {
                 MarksCategory category = new MarksCategory();
                 category.categoryName = tableTitle.isEmpty() ? "Assessment Details" : tableTitle;
-                
+
                 String lowerName = category.categoryName.toLowerCase();
-                if (lowerName.contains("quiz")) category.categoryName = "Quizzes";
-                else if (lowerName.contains("assignment")) category.categoryName = "Assignments";
-                else if (lowerName.contains("sessional")) category.categoryName = "Sessionals";
-                else if (lowerName.contains("final") || lowerName.contains("terminal")) category.categoryName = "Final Exam";
+                if (lowerName.contains("quiz"))
+                    category.categoryName = "Quizzes";
+                else if (lowerName.contains("assignment"))
+                    category.categoryName = "Assignments";
+                else if (lowerName.contains("sessional"))
+                    category.categoryName = "Sessionals";
+                else if (lowerName.contains("final") || lowerName.contains("terminal"))
+                    category.categoryName = "Final Exam";
 
                 for (int r = hdrIdx + 1; r < rows.size(); r++) {
                     Element row = rows.get(r);
                     String rowText = row.text().toLowerCase();
-                    if (!row.select(".GridFooter").isEmpty() || rowText.contains("projected") || rowText.contains("aggregate") || rowText.contains("total marks") || rowText.trim().equals("=")) {
+                    if (!row.select(".GridFooter").isEmpty() || rowText.contains("projected")
+                            || rowText.contains("aggregate") || rowText.contains("total marks")
+                            || rowText.trim().equals("=")) {
                         continue;
                     }
                     Elements cells = row.select("td");
-                    if (cells.size() <= titleIdx) continue;
+                    if (cells.size() <= titleIdx)
+                        continue;
 
                     MarkItem item = new MarkItem();
                     item.title = cells.get(titleIdx).text().trim();
                     item.date = dateIdx >= 0 && dateIdx < cells.size() ? cells.get(dateIdx).text().trim() : "";
-                    item.totalMarks = totalIdx >= 0 && totalIdx < cells.size() ? cells.get(totalIdx).text().trim() : "10";
+                    item.totalMarks = totalIdx >= 0 && totalIdx < cells.size() ? cells.get(totalIdx).text().trim()
+                            : "10";
                     item.obtainedMarks = obtIdx >= 0 && obtIdx < cells.size() ? cells.get(obtIdx).text().trim() : "";
                     item.percentage = pctIdx >= 0 && pctIdx < cells.size() ? cells.get(pctIdx).text().trim() : "";
-                    if (item.obtainedMarks.isEmpty()) continue;
+                    if (item.obtainedMarks.isEmpty())
+                        continue;
 
                     try {
                         double max = Double.parseDouble(item.totalMarks.replaceAll("[^0-9.]", ""));
@@ -1664,7 +1827,8 @@ public class CoursesTabView {
                         if (item.percentage.isEmpty() && max > 0) {
                             item.percentage = String.format("%.0f%%", (obt / max) * 100);
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) {
+                    }
 
                     category.items.add(item);
                 }
@@ -1681,7 +1845,8 @@ public class CoursesTabView {
     }
 
     private String findCourseDropdownValue(String pageHtml, String title, String code) {
-        if (pageHtml == null || pageHtml.isBlank()) return null;
+        if (pageHtml == null || pageHtml.isBlank())
+            return null;
         List<String[]> options = context.portalRepository().parseDropdownOptions(pageHtml, "course");
         if (options.isEmpty()) {
             options.addAll(context.portalRepository().parseDropdownOptions(pageHtml, "ddl"));
@@ -1706,15 +1871,17 @@ public class CoursesTabView {
         banner.setAlignment(Pos.CENTER);
         banner.setPadding(new Insets(8, 16, 8, 16));
         banner.setStyle("-fx-background-color:#FEF2F2;-fx-border-color:#FCA5A5;-fx-border-width:0 0 1 0;");
-        
+
         Label icon = new Label("⚠");
         icon.setStyle("-fx-text-fill:#DC2626;-fx-font-size:14px;");
         Label text = new Label("Offline Mode: Displaying previously loaded data.");
         text.setStyle("-fx-text-fill:#991B1B;-fx-font-size:12px;-fx-font-weight:bold;");
-        
+
         banner.getChildren().addAll(icon, text);
         return banner;
     }
 
-    public VBox getRoot() { return root; }
+    public VBox getRoot() {
+        return root;
+    }
 }

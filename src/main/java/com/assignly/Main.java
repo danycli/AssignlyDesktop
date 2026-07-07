@@ -25,7 +25,7 @@ public class Main extends Application {
             new DataCacheService(databaseManager),
             new PortalService()
         );
-        stage.initStyle(javafx.stage.StageStyle.UNDECORATED);
+        stage.initStyle(javafx.stage.StageStyle.DECORATED);
         try {
             java.io.InputStream iconStream = getClass().getResourceAsStream("/com/assignly/images/favicon.png");
             if (iconStream != null) {
@@ -38,6 +38,7 @@ public class Main extends Application {
         stage.setMinHeight(700);
         context.showSplash();
         stage.show();
+        com.assignly.util.NativeWindowHelper.applyNativeBorderless(stage, "Assignly Desktop", 32);
 
         // Pre-warm WebView in background after startup to avoid tab-switch lag
         javafx.animation.PauseTransition prewarm = new javafx.animation.PauseTransition(javafx.util.Duration.seconds(2));

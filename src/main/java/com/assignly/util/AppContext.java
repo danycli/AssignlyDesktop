@@ -112,6 +112,9 @@ public class AppContext {
     private final java.util.concurrent.ConcurrentMap<String, java.util.concurrent.CompletableFuture<String>> inFlightCaches = new java.util.concurrent.ConcurrentHashMap<>();
     private volatile boolean isOnline = true;
     private final java.util.List<java.lang.ref.WeakReference<java.util.function.Consumer<Boolean>>> connectivityListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private volatile boolean captchaDialogShowing = false;
+    private volatile boolean captchaResolved = false;
+    // Native maximize state preserves taskbar visibility using setMaximizedBounds
 
     public void addConnectivityListener(java.util.function.Consumer<Boolean> listener) {
         connectivityListeners.removeIf(ref -> ref.get() == null);
@@ -152,7 +155,7 @@ public class AppContext {
         } catch (Exception ignored) {}
         this.portalRepository.setOnSessionExpiredCallback(() -> {
             javafx.application.Platform.runLater(() -> {
-                if (portalRepository.isOfflineMode() || !isMainAppShowing) {
+                if (portalRepository.isOfflineMode() || !isMainAppShowing || captchaResolved || captchaDialogShowing) {
                     return;
                 }
                 notificationService.showError("Session expired. Please log in again.");
@@ -199,8 +202,19 @@ public class AppContext {
             portalRepository.loadSessionCookies();
             boolean isValid = portalRepository.verifySession(reg);
             boolean isOnline = checkConnectivity();
+            
+            if (!isValid && isOnline) {
+                com.assignly.service.PortalRepository.LoginResult res = portalRepository.login(reg, password);
+                if (res instanceof com.assignly.service.PortalRepository.LoginResult.Success) {
+                    isValid = true;
+                    portalRepository.saveSessionCookies();
+                }
+            }
+            
+            final boolean finalIsValid = isValid;
+
             Platform.runLater(() -> {
-                if (isValid) {
+                if (finalIsValid) {
                     portalRepository.setOfflineMode(false);
                     setSessionCredentials(reg, password);
                     showMainApp();
@@ -268,10 +282,37 @@ public class AppContext {
         loginView.getLoginButton().setText("Signing in...");
         loginView.getErrorLabel().setVisible(false);
 
-        showCaptchaDialog(loginView, reg, pass, remember);
+        new Thread(() -> {
+            boolean isOnline = checkConnectivity();
+            if (!isOnline) {
+                Platform.runLater(() -> showLoginError(loginView, "No internet connection. Cannot authenticate new session."));
+                return;
+            }
+            
+            com.assignly.service.PortalRepository.LoginResult result = portalRepository.login(reg, pass);
+            Platform.runLater(() -> {
+                if (result instanceof com.assignly.service.PortalRepository.LoginResult.Success) {
+                    portalRepository.saveSessionCookies();
+                    credentialManager.saveCredentials(reg, pass, remember);
+                    UserPreferences prefs = preferencesService.loadPreferences();
+                    prefs.setAutoLogin(remember);
+                    preferencesService.savePreferences(prefs);
+                    setSessionCredentials(reg, pass);
+                    showMainApp();
+                } else if (result instanceof com.assignly.service.PortalRepository.LoginResult.CaptchaRequired) {
+                    showCaptchaDialog(loginView, reg, pass, remember);
+                } else if (result instanceof com.assignly.service.PortalRepository.LoginResult.InvalidCredentials) {
+                    showLoginError(loginView, "Invalid Registration Number or Password.");
+                } else if (result instanceof com.assignly.service.PortalRepository.LoginResult.Error) {
+                    showLoginError(loginView, "Error connecting to portal: " + ((com.assignly.service.PortalRepository.LoginResult.Error) result).message());
+                }
+            });
+        }).start();
     }
 
     private void showCaptchaDialog(LoginView loginView, String reg, String pass, boolean remember) {
+        if (captchaDialogShowing) return;
+        captchaDialogShowing = true;
         Platform.runLater(() -> {
             try {
                 if (java.net.CookieHandler.getDefault() == null) {
@@ -370,6 +411,8 @@ public class AppContext {
                                         portalRepository.saveSessionCookies();
                                         portalRepository.setOfflineMode(false);
                                         portalRepository.setSuppressSessionExpiredCallback(true);
+                                        captchaResolved = true;
+                                        captchaDialogShowing = false;
                                         captchaStage.close();
                                         
                                         credentialManager.saveCredentials(reg, pass, remember);
@@ -391,6 +434,7 @@ public class AppContext {
             });
 
             captchaStage.setOnCloseRequest(e -> {
+                captchaDialogShowing = false;
                 if (loginView != null) {
                     loginView.getLoginButton().setDisable(false);
                     loginView.getLoginButton().setText("Sign In");
@@ -2030,6 +2074,7 @@ public class AppContext {
         notificationService.initToastLayer(root);
 
         Scene scene = new Scene(root, width, height);
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
         URL css = getClass().getResource("/com/assignly/styles/app.css");
         if (css != null) scene.getStylesheets().add(css.toExternalForm());
         
@@ -2038,8 +2083,6 @@ public class AppContext {
 
         stage.setTitle(title);
         stage.setScene(scene);
-
-        ResizeHelper.addResizeListener(stage);
     }
 
     private HBox buildCustomTitleBar() {
@@ -2146,7 +2189,7 @@ public class AppContext {
             maxBtn.setOpacity(newVal ? 0.3 : 1.0);
         });
 
-        // Update Maximize/Restore icon based on stage state
+        // Update Maximize/Restore icon based on native stage state
         stage.maximizedProperty().addListener((obs, oldVal, newVal) -> {
             if (newVal) {
                 maxIcon.setText("🗗");
@@ -2190,30 +2233,6 @@ public class AppContext {
 
         // Assembly
         titleBar.getChildren().addAll(brandingBox, dragSpacer, minBtn, maxBtn, closeBtn);
-
-        // Draggable window handlers
-        final double[] xOffset = new double[1];
-        final double[] yOffset = new double[1];
-
-        titleBar.setOnMousePressed(event -> {
-            xOffset[0] = event.getSceneX();
-            yOffset[0] = event.getSceneY();
-        });
-
-        titleBar.setOnMouseDragged(event -> {
-            if (!stage.isMaximized() || (stage.getMinWidth() == stage.getMaxWidth())) {
-                stage.setX(event.getScreenX() - xOffset[0]);
-                stage.setY(event.getScreenY() - yOffset[0]);
-            }
-        });
-
-        titleBar.setOnMouseClicked(event -> {
-            if (event.getClickCount() == 2) {
-                if (stage.isResizable() && stage.getMinWidth() != stage.getMaxWidth()) {
-                    stage.setMaximized(!stage.isMaximized());
-                }
-            }
-        });
 
         return titleBar;
     }

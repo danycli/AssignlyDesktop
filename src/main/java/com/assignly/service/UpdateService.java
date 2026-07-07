@@ -57,7 +57,8 @@ public class UpdateService {
 
     public void checkForUpdatesSilently(StackPane sceneRoot) {
         UserPreferences prefs = context.preferencesService().loadPreferences();
-        if (!prefs.isAutoCheckUpdates()) return;
+        if (!prefs.isAutoCheckUpdates())
+            return;
 
         executor.submit(() -> performUpdateCheck(sceneRoot, true, prefs));
     }
@@ -71,7 +72,7 @@ public class UpdateService {
     private void performUpdateCheck(StackPane sceneRoot, boolean silent, UserPreferences prefs) {
         try {
             String url = prefs.isNotifyPreReleases() ? GITHUB_API_ALL : GITHUB_API_LATEST;
-            
+
             Request request = new Request.Builder()
                     .url(url)
                     .header("Accept", "application/vnd.github.v3+json")
@@ -79,7 +80,9 @@ public class UpdateService {
 
             try (Response response = httpClient.newCall(request).execute()) {
                 if (!response.isSuccessful() || response.body() == null) {
-                    if (!silent) Platform.runLater(() -> context.notificationService().showError("Failed to check for updates. API returned " + response.code()));
+                    if (!silent)
+                        Platform.runLater(() -> context.notificationService()
+                                .showError("Failed to check for updates. API returned " + response.code()));
                     return;
                 }
 
@@ -96,16 +99,20 @@ public class UpdateService {
                 }
 
                 if (releaseInfo == null) {
-                    if (!silent) Platform.runLater(() -> context.notificationService().showError("No release data found."));
+                    if (!silent)
+                        Platform.runLater(() -> context.notificationService().showError("No release data found."));
                     return;
                 }
 
                 String fetchedVersion = releaseInfo.has("tag_name") ? releaseInfo.get("tag_name").getAsString() : null;
                 String htmlUrl = releaseInfo.has("html_url") ? releaseInfo.get("html_url").getAsString() : null;
-                String body = releaseInfo.has("body") ? releaseInfo.get("body").getAsString() : "A new version of Assignly Desktop is available!";
+                String body = releaseInfo.has("body") ? releaseInfo.get("body").getAsString()
+                        : "A new version of Assignly Desktop is available!";
 
                 if (fetchedVersion == null || htmlUrl == null) {
-                    if (!silent) Platform.runLater(() -> context.notificationService().showError("Invalid release data from GitHub."));
+                    if (!silent)
+                        Platform.runLater(
+                                () -> context.notificationService().showError("Invalid release data from GitHub."));
                     return;
                 }
 
@@ -113,14 +120,19 @@ public class UpdateService {
                     if (silent && fetchedVersion.equals(prefs.getDismissedVersion())) {
                         return; // User already dismissed this version
                     }
-                    Platform.runLater(() -> showUpdateNotification(sceneRoot, fetchedVersion, body, htmlUrl, prefs.isOpenWebsiteFirst()));
+                    Platform.runLater(() -> showUpdateNotification(sceneRoot, fetchedVersion, body, htmlUrl,
+                            prefs.isOpenWebsiteFirst()));
                 } else {
-                    if (!silent) Platform.runLater(() -> context.notificationService().showSuccess("Assignly Desktop is up to date (" + CURRENT_VERSION + ")."));
+                    if (!silent)
+                        Platform.runLater(() -> context.notificationService()
+                                .showSuccess("Assignly Desktop is up to date (" + CURRENT_VERSION + ")."));
                 }
             }
         } catch (Exception e) {
             e.printStackTrace();
-            if (!silent) Platform.runLater(() -> context.notificationService().showError("Network error while checking for updates."));
+            if (!silent)
+                Platform.runLater(
+                        () -> context.notificationService().showError("Network error while checking for updates."));
         }
     }
 
@@ -134,8 +146,10 @@ public class UpdateService {
             for (int i = 0; i < length; i++) {
                 int cPart = i < cParts.length ? Integer.parseInt(cParts[i]) : 0;
                 int fPart = i < fParts.length ? Integer.parseInt(fParts[i]) : 0;
-                if (cPart < fPart) return true;
-                if (cPart > fPart) return false;
+                if (cPart < fPart)
+                    return true;
+                if (cPart > fPart)
+                    return false;
             }
             return false;
         } catch (Exception e) {
@@ -144,14 +158,16 @@ public class UpdateService {
         }
     }
 
-    private void showUpdateNotification(StackPane sceneRoot, String version, String description, String githubUrl, boolean openWebsiteFirst) {
+    private void showUpdateNotification(StackPane sceneRoot, String version, String description, String githubUrl,
+            boolean openWebsiteFirst) {
         if (currentNotification != null && sceneRoot.getChildren().contains(currentNotification)) {
             return; // Already showing
         }
 
         VBox card = new VBox(12);
         card.setMaxWidth(380);
-        card.setStyle("-fx-background-color: -color-bg-card; -fx-background-radius: 12; -fx-border-color: -color-border; -fx-border-width: 1; -fx-border-radius: 12; -fx-padding: 20; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.4), 15, 0, 0, 5);");
+        card.getStyleClass().add("card");
+        card.setStyle("-fx-padding: 20; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.4), 15, 0, 0, 5);");
 
         HBox header = new HBox(8);
         header.setAlignment(Pos.CENTER_LEFT);
@@ -162,28 +178,32 @@ public class UpdateService {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         Label versionBadge = new Label(version);
-        versionBadge.setStyle("-fx-background-color: rgba(20, 184, 166, 0.15); -fx-text-fill: -color-accent; -fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 4 8; -fx-background-radius: 12;");
+        versionBadge.setStyle(
+                "-fx-background-color: rgba(20, 184, 166, 0.15); -fx-text-fill: -color-accent; -fx-font-size: 11px; -fx-font-weight: bold; -fx-padding: 4 8; -fx-background-radius: 12;");
         header.getChildren().addAll(icon, title, spacer, versionBadge);
 
         String cleanDesc = description.split("\\r?\\n")[0];
-        if (cleanDesc.length() > 100) cleanDesc = cleanDesc.substring(0, 97) + "...";
+        if (cleanDesc.length() > 100)
+            cleanDesc = cleanDesc.substring(0, 97) + "...";
         Label descLabel = new Label(cleanDesc);
         descLabel.setWrapText(true);
         descLabel.setStyle("-fx-text-fill: -color-text-muted; -fx-font-size: 13px;");
 
         HBox actions = new HBox(12);
         actions.setAlignment(Pos.CENTER_RIGHT);
-        actions.setPadding(new Insets(8, 0, 0, 0));
+        actions.setPadding(new Insets(0, 0, 0, 0));
 
         Button laterBtn = new Button("Later");
-        laterBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: -color-text-muted; -fx-cursor: hand; -fx-font-weight: bold;");
+        laterBtn.setStyle(
+                "-fx-background-color: transparent; -fx-text-fill: -color-text-muted; -fx-cursor: hand; -fx-font-weight: bold;");
         laterBtn.setOnAction(e -> {
             dismissUpdate(version);
             closeNotification(sceneRoot, card);
         });
 
         Button updateBtn = new Button("Update Now");
-        updateBtn.setStyle("-fx-background-color: -color-accent; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; -fx-background-radius: 6; -fx-padding: 8 16;");
+        updateBtn.setStyle(
+                "-fx-background-color: -color-accent; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; -fx-background-radius: 6; -fx-padding: 8 16;");
         updateBtn.setOnAction(e -> {
             closeNotification(sceneRoot, card);
             executor.submit(() -> launchUpdateUrl(githubUrl, openWebsiteFirst));
@@ -194,10 +214,10 @@ public class UpdateService {
 
         StackPane.setAlignment(card, Pos.TOP_RIGHT);
         StackPane.setMargin(card, new Insets(24, 24, 0, 0));
-        
+
         card.setTranslateY(-20);
         card.setOpacity(0);
-        
+
         sceneRoot.getChildren().add(card);
         currentNotification = card;
 
@@ -205,7 +225,7 @@ public class UpdateService {
         ft.setToValue(1.0);
         TranslateTransition tt = new TranslateTransition(Duration.millis(300), card);
         tt.setToY(0);
-        
+
         ParallelTransition pt = new ParallelTransition(ft, tt);
         pt.play();
     }
@@ -215,7 +235,7 @@ public class UpdateService {
         ft.setToValue(0);
         TranslateTransition tt = new TranslateTransition(Duration.millis(200), card);
         tt.setToY(-20);
-        
+
         ParallelTransition pt = new ParallelTransition(ft, tt);
         pt.setOnFinished(e -> sceneRoot.getChildren().remove(card));
         pt.play();

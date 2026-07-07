@@ -507,14 +507,14 @@ public class PortalRepository {
 
     // ---------- Fetch Dashboard data ----------
     public DashboardData fetchDashboard() {
-        String html = fetchPageHtml("Dashboard.aspx");
+        String html = fetchPageHtml("CoursePortal.aspx");
         if (html == null) return null;
         return parseDashboard(html);
     }
 
     public DashboardData parseDashboard(String html) {
         if (html == null || html.isBlank()) return null;
-        Document doc = Jsoup.parse(html, BASE_URL + "/Dashboard.aspx");
+        Document doc = Jsoup.parse(html, BASE_URL + "/CoursePortal.aspx");
 
         // 1. Parse student info table (key-value pairs from the top table)
         Map<String, String> info = new LinkedHashMap<>();
@@ -538,7 +538,7 @@ public class PortalRepository {
         }
 
         // 2. Parse photo URL
-        String photoUrl = parseStudentPhotoUrlFromHtml(html, BASE_URL + "/Dashboard.aspx");
+        String photoUrl = parseStudentPhotoUrlFromHtml(html, BASE_URL + "/CoursePortal.aspx");
         if (photoUrl != null) currentStudentPhotoUrl = photoUrl;
 
         // Update student name from the info table
@@ -1669,8 +1669,8 @@ public class PortalRepository {
                     if (domain.startsWith(".")) {
                         domain = domain.substring(1);
                     }
-                    // Filter for our domain
-                    if (!domain.toLowerCase().contains("sis.cuiatd.edu.pk")) {
+                    // Filter for our domain. Allow cookies set on the exact host or parent domains (e.g. cuiatd.edu.pk)
+                    if (!BASE_HOST.toLowerCase().endsWith(domain.toLowerCase())) {
                         continue;
                     }
 
@@ -3331,7 +3331,9 @@ public class PortalRepository {
                     responseHtml.toLowerCase().contains("file uploaded") ||
                     responseHtml.toLowerCase().contains("your file has been submitted") ||
                     responseHtml.toLowerCase().contains("assignment file updated succefully") ||
-                    responseHtml.toLowerCase().contains("assignment file updated successfully");
+                    responseHtml.toLowerCase().contains("assignment file updated successfully") ||
+                    responseHtml.toLowerCase().contains("submitted successfully") ||
+                    responseHtml.toLowerCase().contains("uploaded successfully");
 
             boolean hasViewstate = responseHtml.toLowerCase().contains("__viewstate");
             boolean hasForm = responseHtml.toLowerCase().contains("<form");

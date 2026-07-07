@@ -179,13 +179,13 @@ public class DashboardTabView {
             boolean isOffline = false;
 
             if (!forceRefresh) {
-                html = context.dataCacheService().getCachedHtml("Dashboard.aspx").orElse(null);
+                html = context.dataCacheService().getCachedHtml("CoursePortal.aspx").orElse(null);
             }
 
             if (html == null) {
-                html = context.fetchAndCacheHtml("Dashboard.aspx");
+                html = context.fetchAndCacheHtml("CoursePortal.aspx");
                 if (html == null) {
-                    html = context.dataCacheService().getCachedHtml("Dashboard.aspx").orElse(null);
+                    html = context.dataCacheService().getCachedHtml("CoursePortal.aspx").orElse(null);
                     isOffline = true;
                 }
             }
@@ -308,12 +308,6 @@ public class DashboardTabView {
         HBox.setHgrow(attendanceCard, Priority.ALWAYS);
         analyticsRow.getChildren().addAll(gpaCard, attendanceCard);
         content.getChildren().add(analyticsRow);
-
-        // 4. FINANCIAL OVERVIEW (Full Width)
-        VBox financialCard = buildFinancialOverviewCard(scholarships, challans, feeHistory);
-        financialCard.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(financialCard, Priority.ALWAYS);
-        content.getChildren().add(financialCard);
 
         // Responsive ScrollPane wrapper
         content.setMinWidth(900);
