@@ -47,8 +47,25 @@ public class PortalService {
     }
 
     public void applyDarkOverlay(WebEngine webEngine, boolean enabled) {
+        // Fast-path URL check in Java before even evaluating JavaScript
+        String loc = webEngine.getLocation();
+        if (loc != null && (loc.contains("/cdn-cgi/") || loc.contains("challenge-platform"))) {
+            return;
+        }
+
         String script = """
             (function() {
+              // Strict safety guard to prevent style injection from polluting DOM during a challenge
+              const isCaptchaActive = document.querySelector('[id*="cf-challenge"]') != null || 
+                                      document.querySelector('.cf-turnstile') != null || 
+                                      document.querySelector('iframe[src*="cloudflare"]') != null ||
+                                      document.title.toLowerCase().includes('just a moment') ||
+                                      (document.body && document.body.innerHTML.toLowerCase().includes('cloudflare'));
+                                      
+              if (isCaptchaActive || window.location.href.includes('cdn-cgi')) {
+                  return; // Abort injection
+              }
+
               const styleId = 'assignly-dark-overlay';
               let style = document.getElementById(styleId);
               if (%s) {
@@ -96,21 +113,26 @@ public class PortalService {
               // Respect active captcha states
               const isCaptchaActive = document.querySelector('[id*="cf-challenge"]') != null || 
                                       document.querySelector('.cf-turnstile') != null || 
-                                      document.querySelector('iframe[src*="cloudflare"]') != null;
+                                      document.querySelector('iframe[src*="cloudflare"]') != null ||
+                                      document.title.toLowerCase().includes('just a moment') ||
+                                      (document.body && document.body.innerHTML.toLowerCase().includes('cloudflare'));
                                       
+              // Completely abort executing the autofill routine if a challenge is present
+              if (isCaptchaActive) {
+                  return;
+              }
+
               if (!reg || !pass) return;
 
-              // Gently inject credentials without stealing focus, which trips behavioral anomaly detectors
-              // or breaks the user's interaction with the captcha widget.
+              // Gently inject credentials without stealing focus
               reg.value = '%s';
               reg.dispatchEvent(new Event('input', { bubbles: true }));
               
               pass.value = '%s';
               pass.dispatchEvent(new Event('input', { bubbles: true }));
               
-              // Only attempt to auto-focus submit if no captcha is obstructing the flow
-              if (submit && !isCaptchaActive) {
-                  // Optionally highlight submit or prepare it, but avoid stealing focus if challenge is present
+              if (submit) {
+                  // Optionally highlight submit or prepare it
               }
             })();
             """.formatted(escapedRegistration, escapedPassword);
