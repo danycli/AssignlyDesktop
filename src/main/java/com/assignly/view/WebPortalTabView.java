@@ -56,7 +56,7 @@ public class WebPortalTabView {
         // WebView
         WebView webView = new WebView();
         WebEngine engine = webView.getEngine();
-        engine.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        engine.setUserAgent(com.assignly.service.PortalRepository.USER_AGENT);
 
         UserPreferences prefs = context.preferencesService().loadPreferences();
         webView.setZoom(prefs.getZoomLevel());

@@ -14,8 +14,15 @@ public class PortalService {
         if (registrationNo == null || registrationNo.isBlank() || password == null || password.isBlank()) {
             return;
         }
+        // Single-element array to allow mutation from within the lambda closure.
+        // The script fires at most once per WebEngine session — if the user needs to
+        // re-attempt (e.g., wrong credentials), showCaptchaDialog() creates a new
+        // WebEngine which gets a fresh enableAutoLogin() call with a fresh guard.
+        final boolean[] injected = {false};
         webEngine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
-            if (newState == Worker.State.SUCCEEDED && webEngine.getLocation().toLowerCase().contains("login.aspx")) {
+            if (!injected[0] && newState == Worker.State.SUCCEEDED
+                    && webEngine.getLocation().toLowerCase().contains("login.aspx")) {
+                injected[0] = true;
                 String script = buildAutoLoginScript(registrationNo, password);
                 webEngine.executeScript(script);
             }
@@ -85,14 +92,26 @@ public class PortalService {
               const reg = first(regCandidates);
               const pass = first(passCandidates);
               const submit = first(submitCandidates);
-              if (!reg || !pass || !submit) return;
+              
+              // Respect active captcha states
+              const isCaptchaActive = document.querySelector('[id*="cf-challenge"]') != null || 
+                                      document.querySelector('.cf-turnstile') != null || 
+                                      document.querySelector('iframe[src*="cloudflare"]') != null;
+                                      
+              if (!reg || !pass) return;
 
-              reg.focus();
+              // Gently inject credentials without stealing focus, which trips behavioral anomaly detectors
+              // or breaks the user's interaction with the captcha widget.
               reg.value = '%s';
               reg.dispatchEvent(new Event('input', { bubbles: true }));
-              pass.focus();
+              
               pass.value = '%s';
               pass.dispatchEvent(new Event('input', { bubbles: true }));
+              
+              // Only attempt to auto-focus submit if no captcha is obstructing the flow
+              if (submit && !isCaptchaActive) {
+                  // Optionally highlight submit or prepare it, but avoid stealing focus if challenge is present
+              }
             })();
             """.formatted(escapedRegistration, escapedPassword);
     }

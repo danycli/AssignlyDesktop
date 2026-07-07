@@ -370,65 +370,76 @@ public class AppContext {
             VBox.setVgrow(webView, Priority.ALWAYS);
             rootLayout.setCenter(centerLayout);
 
+            // --- Cookie-based success detection (mirrors Android CaptchaWebViewDialog) ---
+            // Three-boolean state machine instead of pure URL matching.
+            final boolean[] challengeEncountered = {false};
+            final boolean[] clearanceCookieSeen = {false};
+            final boolean[] hasAutoCompleted = {false};
+
+            // Early challenge detection via locationProperty — fires on redirects
+            // before the page finishes loading, matching Android's onPageStarted.
+            engine.locationProperty().addListener((obs, oldUrl, newUrl) -> {
+                if (newUrl == null || newUrl.isBlank()) return;
+                String normalized = newUrl.toLowerCase();
+                if (normalized.contains("/cdn-cgi/") || normalized.contains("challenge-platform")) {
+                    challengeEncountered[0] = true;
+                }
+                // Also check cookies on every navigation change
+                if (checkCfClearanceCookie()) {
+                    clearanceCookieSeen[0] = true;
+                }
+            });
+
             engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
                 if (newState == Worker.State.SUCCEEDED) {
                     UserPreferences currentPrefs = preferencesService.loadPreferences();
                     portalService.applyDarkOverlay(engine, currentPrefs.isDarkOverlay());
 
-                    String loc = engine.getLocation().toLowerCase();
+                    if (hasAutoCompleted[0]) return; // Already completing
+
+                    String loc = engine.getLocation();
+                    if (loc == null || loc.isBlank()) return;
+                    String locLower = loc.toLowerCase();
+
+                    // 1. Update challengeEncountered from the loaded URL
+                    if (isLikelyChallengeUrl(locLower)) {
+                        challengeEncountered[0] = true;
+                    }
+
+                    // 2. Poll cf_clearance cookie from java.net.CookieManager
+                    if (checkCfClearanceCookie()) {
+                        clearanceCookieSeen[0] = true;
+                    }
+
+                    // 3. Import cookies on every navigation so OkHttp has latest state
+                    portalRepository.importCookiesFromDefaultManager();
+
+                    boolean onPortalHost = isPortalHostUrl(locLower);
+                    boolean onChallenge = isLikelyChallengeUrl(locLower);
+
+                    // Path A: Challenge was encountered, clearance cookie obtained,
+                    // now we're back on the portal host without challenge markers.
+                    boolean challengeLooksSolved = onPortalHost
+                            && !onChallenge
+                            && challengeEncountered[0]
+                            && clearanceCookieSeen[0];
+
+                    // Path B: No challenge was ever encountered — the server let us
+                    // through directly (no Turnstile required). Detect by being on
+                    // portal host, not on a challenge page, and not on the bare root.
                     String path = "";
                     try {
-                        path = new java.net.URI(loc).getPath();
+                        path = new java.net.URI(locLower).getPath();
                     } catch (Exception ignored) {}
                     boolean isRoot = path == null || path.isEmpty() || "/".equals(path);
+                    boolean noChallengeBypass = onPortalHost
+                            && !onChallenge
+                            && !challengeEncountered[0]
+                            && !isRoot
+                            && !locLower.contains("login.aspx");
 
-                    boolean isSuccessPage = loc.startsWith("http") 
-                            && !loc.contains("login.aspx") 
-                            && !loc.contains("challenges.cloudflare.com") 
-                            && !loc.contains("cdn-cgi")
-                            && !isRoot;
-                    
-                    if (isSuccessPage) {
-                        
-                        Platform.runLater(() -> {
-                            new Thread(() -> {
-                                int retries = 0;
-                                boolean gotCookies = false;
-                                while (retries < 10) {
-                                    portalRepository.importCookiesFromDefaultManager();
-                                    if (portalRepository.hasSessionCookiesForHost("sis.cuiatd.edu.pk")) {
-                                        gotCookies = true;
-                                        break;
-                                    }
-                                    try {
-                                        Thread.sleep(150);
-                                    } catch (InterruptedException ignored) {}
-                                    retries++;
-                                }
-
-                                if (gotCookies) {
-                                    Platform.runLater(() -> {
-                                        portalRepository.saveSessionCookies();
-                                        portalRepository.setOfflineMode(false);
-                                        portalRepository.setSuppressSessionExpiredCallback(true);
-                                        captchaResolved = true;
-                                        captchaDialogShowing = false;
-                                        captchaStage.close();
-                                        
-                                        credentialManager.saveCredentials(reg, pass, remember);
-                                        UserPreferences prefs = preferencesService.loadPreferences();
-                                        prefs.setAutoLogin(remember);
-                                        preferencesService.savePreferences(prefs);
-                                        setSessionCredentials(reg, pass);
-                                        if (!isMainAppShowing) {
-                                            showMainApp();
-                                        } else {
-                                            syncPortalData();
-                                        }
-                                    });
-                                }
-                            }).start();
-                        });
+                    if (challengeLooksSolved || noChallengeBypass) {
+                        completeCaptchaResolution(captchaStage, loginView, reg, pass, remember, hasAutoCompleted);
                     }
                 }
             });
@@ -456,6 +467,109 @@ public class AppContext {
 
             engine.load(PortalService.SIS_LOGIN_URL);
         });
+    }
+
+    /**
+     * Completes the captcha resolution flow: imports cookies, saves credentials,
+     * closes the dialog, and proceeds to the main app or syncs data.
+     * Extracted to avoid duplication between challengeLooksSolved and noChallengeBypass paths.
+     */
+    private void completeCaptchaResolution(Stage captchaStage, LoginView loginView,
+                                            String reg, String pass, boolean remember,
+                                            boolean[] hasAutoCompleted) {
+        if (hasAutoCompleted[0]) return;
+        hasAutoCompleted[0] = true;
+
+        Platform.runLater(() -> {
+            new Thread(() -> {
+                // Retry cookie import a few times to ensure WebView cookies have propagated
+                int retries = 0;
+                boolean gotCookies = false;
+                while (retries < 10) {
+                    portalRepository.importCookiesFromDefaultManager();
+                    if (portalRepository.hasSessionCookiesForHost("sis.cuiatd.edu.pk")) {
+                        gotCookies = true;
+                        break;
+                    }
+                    try {
+                        Thread.sleep(150);
+                    } catch (InterruptedException ignored) {}
+                    retries++;
+                }
+
+                if (gotCookies) {
+                    Platform.runLater(() -> {
+                        portalRepository.saveSessionCookies();
+                        portalRepository.setOfflineMode(false);
+                        portalRepository.setSuppressSessionExpiredCallback(true);
+                        captchaResolved = true;
+                        captchaDialogShowing = false;
+                        captchaStage.close();
+                        
+                        credentialManager.saveCredentials(reg, pass, remember);
+                        UserPreferences prefs = preferencesService.loadPreferences();
+                        prefs.setAutoLogin(remember);
+                        preferencesService.savePreferences(prefs);
+                        setSessionCredentials(reg, pass);
+                        if (!isMainAppShowing) {
+                            showMainApp();
+                        } else {
+                            syncPortalData();
+                        }
+                    });
+                } else {
+                    // Could not get session cookies — reset so the user can try again
+                    hasAutoCompleted[0] = false;
+                }
+            }).start();
+        });
+    }
+
+    /**
+     * Checks whether a cf_clearance cookie exists in the java.net.CookieManager
+     * for the portal domain. This is the JavaFX equivalent of Android's
+     * CookieManager.getInstance().getCookie(url) check.
+     */
+    private boolean checkCfClearanceCookie() {
+        try {
+            java.net.CookieHandler handler = java.net.CookieHandler.getDefault();
+            if (handler instanceof java.net.CookieManager cm) {
+                for (java.net.HttpCookie cookie : cm.getCookieStore().getCookies()) {
+                    if ("cf_clearance".equalsIgnoreCase(cookie.getName())) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    /**
+     * Returns true if the URL looks like a Cloudflare challenge or captcha endpoint.
+     * Mirrors Android's isLikelyChallenge() URL checks.
+     */
+    private boolean isLikelyChallengeUrl(String urlLower) {
+        return urlLower.contains("/cdn-cgi/")
+                || urlLower.contains("challenge-platform")
+                || urlLower.contains("challenges.cloudflare.com")
+                || urlLower.contains("captcha");
+    }
+
+    /**
+     * Returns true if the URL's host matches the portal host (sis.cuiatd.edu.pk).
+     * Mirrors Android's isPortalHostUrl().
+     */
+    private boolean isPortalHostUrl(String urlLower) {
+        try {
+            String host = new java.net.URI(urlLower).getHost();
+            if (host == null) return false;
+            host = host.toLowerCase();
+            return host.equals("sis.cuiatd.edu.pk")
+                    || host.endsWith(".sis.cuiatd.edu.pk")
+                    || "sis.cuiatd.edu.pk".endsWith("." + host);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void showLoginError(LoginView view, String msg) {
