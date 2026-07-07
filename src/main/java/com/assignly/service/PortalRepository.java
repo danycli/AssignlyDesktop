@@ -1655,6 +1655,48 @@ public class PortalRepository {
         hostCookies.put(cookie.name(), cookie);
     }
 
+    /**
+     * Injects raw cookie string directly into OkHttp and Java CookieManager.
+     */
+    public void injectRawCookies(String rawCookies) {
+        if (rawCookies == null || rawCookies.isBlank()) return;
+        
+        java.net.CookieManager cm = null;
+        try {
+            if (java.net.CookieHandler.getDefault() instanceof java.net.CookieManager) {
+                cm = (java.net.CookieManager) java.net.CookieHandler.getDefault();
+            }
+        } catch (Exception ignored) {}
+
+        String[] pairs = rawCookies.split(";");
+        for (String pair : pairs) {
+            String[] parts = pair.split("=", 2);
+            if (parts.length == 2) {
+                String name = parts[0].trim();
+                String value = parts[1].trim();
+                
+                // Add to OkHttp
+                Cookie cookie = new Cookie.Builder()
+                        .name(name)
+                        .value(value)
+                        .domain(BASE_HOST)
+                        .path("/")
+                        .build();
+                addCookie(BASE_HOST, cookie);
+
+                // Add to Java CookieManager
+                if (cm != null) {
+                    java.net.HttpCookie hc = new java.net.HttpCookie(name, value);
+                    hc.setDomain(BASE_HOST);
+                    hc.setPath("/");
+                    try {
+                        cm.getCookieStore().add(new java.net.URI(BASE_URL), hc);
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
+    }
+
     public void importCookiesFromDefaultManager() {
         try {
             java.net.CookieHandler handler = java.net.CookieHandler.getDefault();

@@ -350,123 +350,148 @@ public class AppContext {
             header.getChildren().addAll(titleLabel, subtitleLabel);
             rootLayout.setTop(header);
 
-            WebView webView = new WebView();
-            WebEngine engine = webView.getEngine();
-            // Don't override the UA for the captcha dialog. JavaFX WebKit's real
-            // default UA truthfully identifies the engine. Spoofing a modern Safari
-            // string (PortalRepository.USER_AGENT) creates a capabilities mismatch
-            // that Turnstile's fingerprinting detects, causing infinite re-issuance.
-            // Android's CaptchaWebViewDialog uses the system WebView's real default
-            // UA for the same reason.
-            try {
-                engine.setUserDataDirectory(new java.io.File(com.assignly.util.AppDirectoryHelper.getAppDataDir()));
-            } catch (Exception ignored) {}
-
-            // Don't inject credential auto-fill into the captcha dialog's DOM.
-            // Synthetic value-setting and input events on the same page as the
-            // Turnstile widget are bot-like signals that stack against getting a
-            // clean pass. Android's CaptchaWebViewDialog never touches form fields
-            // — it only watches cookies and URLs. Credential handling happens after
-            // cf_clearance is confirmed, not concurrently with the widget.
-
-            ProgressBar progressBar = new ProgressBar(0);
-            progressBar.setMaxWidth(Double.MAX_VALUE);
-            progressBar.setPrefHeight(3);
-            progressBar.setStyle("-fx-accent: #14b8a6; -fx-background-color: transparent; -fx-control-inner-background: transparent;");
-            progressBar.progressProperty().bind(engine.getLoadWorker().progressProperty());
-            progressBar.visibleProperty().bind(engine.getLoadWorker().runningProperty());
-
-            VBox centerLayout = new VBox(progressBar, webView);
-            VBox.setVgrow(webView, Priority.ALWAYS);
+            javafx.embed.swing.SwingNode swingNode = new javafx.embed.swing.SwingNode();
+            
+            VBox centerLayout = new VBox(16);
+            centerLayout.setAlignment(javafx.geometry.Pos.CENTER);
+            
+            Label loadingLabel = new Label("Initializing Chromium Engine...\n(First time setup may take a few minutes to download)");
+            loadingLabel.setStyle("-fx-text-fill: #14b8a6; -fx-font-size: 14px; -fx-text-alignment: center;");
+            ProgressIndicator loadingSpinner = new ProgressIndicator();
+            centerLayout.getChildren().addAll(loadingSpinner, loadingLabel);
+            
+            VBox.setVgrow(swingNode, Priority.ALWAYS);
             rootLayout.setCenter(centerLayout);
 
-            // --- Cookie-based success detection (mirrors Android CaptchaWebViewDialog) ---
-            // Three-boolean state machine instead of pure URL matching.
             final boolean[] challengeEncountered = {false};
             final boolean[] clearanceCookieSeen = {false};
             final boolean[] hasAutoCompleted = {false};
 
-            // Early challenge detection via locationProperty — fires on redirects
-            // before the page finishes loading, matching Android's onPageStarted.
-            engine.locationProperty().addListener((obs, oldUrl, newUrl) -> {
-                if (newUrl == null || newUrl.isBlank()) return;
-                String normalized = newUrl.toLowerCase();
-                if (normalized.contains("/cdn-cgi/") || normalized.contains("challenge-platform")) {
-                    challengeEncountered[0] = true;
-                }
-                // Also check cookies on every navigation change
-                if (checkCfClearanceCookie()) {
-                    clearanceCookieSeen[0] = true;
-                }
-            });
-
-            engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
-                if (newState == Worker.State.SUCCEEDED) {
-                    UserPreferences currentPrefs = preferencesService.loadPreferences();
-                    portalService.applyDarkOverlay(engine, currentPrefs.isDarkOverlay());
-
-                    if (hasAutoCompleted[0]) return; // Already completing
-
-                    String loc = engine.getLocation();
-                    if (loc == null || loc.isBlank()) return;
-                    String locLower = loc.toLowerCase();
-
-                    // 1. Update challengeEncountered from the loaded URL
-                    if (isLikelyChallengeUrl(locLower)) {
-                        challengeEncountered[0] = true;
+            new Thread(() -> {
+                try {
+                    // Initialize JCEF (blocks if downloading native binaries)
+                    com.assignly.service.JcefService.initialize(com.assignly.util.AppDirectoryHelper.getAppDataDir());
+                    org.cef.CefApp cefApp = com.assignly.service.JcefService.getApp();
+                    
+                    if (cefApp == null) {
+                        Platform.runLater(() -> {
+                            loadingLabel.setText("Failed to initialize Chromium Engine.");
+                            loadingLabel.setStyle("-fx-text-fill: #ef4444;");
+                            loadingSpinner.setVisible(false);
+                        });
+                        return;
                     }
 
-                    // 2. Poll cf_clearance cookie from java.net.CookieManager
-                    if (checkCfClearanceCookie()) {
-                        clearanceCookieSeen[0] = true;
-                    }
+                    org.cef.CefClient client = cefApp.createClient();
+                    
+                    // Add Load Handler for URL detection and cookie polling
+                    client.addLoadHandler(new org.cef.handler.CefLoadHandlerAdapter() {
+                        @Override
+                        public void onLoadStart(org.cef.browser.CefBrowser browser, org.cef.browser.CefFrame frame, org.cef.network.CefRequest.TransitionType transitionType) {
+                            String urlLower = browser.getURL().toLowerCase();
+                            if (isLikelyChallengeUrl(urlLower)) {
+                                challengeEncountered[0] = true;
+                            }
+                        }
 
-                    // 3. Import cookies on every navigation so OkHttp has latest state
-                    portalRepository.importCookiesFromDefaultManager();
+                        @Override
+                        public void onLoadEnd(org.cef.browser.CefBrowser browser, org.cef.browser.CefFrame frame, int httpStatusCode) {
+                            if (hasAutoCompleted[0]) return;
+                            String urlLower = browser.getURL().toLowerCase();
+                            
+                            org.cef.network.CefCookieManager manager = org.cef.network.CefCookieManager.getGlobalManager();
+                            
+                            // 1. Poll for cf_clearance
+                            manager.visitAllCookies(new org.cef.callback.CefCookieVisitor() {
+                                @Override
+                                public boolean visit(org.cef.network.CefCookie cookie, int count, int total, org.cef.misc.BoolRef delete) {
+                                    if ("cf_clearance".equalsIgnoreCase(cookie.name)) {
+                                        clearanceCookieSeen[0] = true;
+                                    }
+                                    
+                                    // If we've seen all cookies, check for success
+                                    if (count == total - 1) {
+                                        boolean onPortalHost = isPortalHostUrl(urlLower);
+                                        boolean onChallenge = isLikelyChallengeUrl(urlLower);
+                                        boolean challengeLooksSolved = onPortalHost && !onChallenge && challengeEncountered[0] && clearanceCookieSeen[0];
+                                        
+                                        String path = "";
+                                        try {
+                                            path = new java.net.URI(urlLower).getPath();
+                                        } catch (Exception ignored) {}
+                                        boolean isRoot = path == null || path.isEmpty() || "/".equals(path);
+                                        boolean noChallengeBypass = onPortalHost && !onChallenge && !challengeEncountered[0] && !isRoot && !urlLower.contains("login.aspx");
 
-                    boolean onPortalHost = isPortalHostUrl(locLower);
-                    boolean onChallenge = isLikelyChallengeUrl(locLower);
+                                        if (challengeLooksSolved || noChallengeBypass) {
+                                            if (hasAutoCompleted[0]) return true;
+                                            hasAutoCompleted[0] = true;
+                                            
+                                            // Extract all CEF cookies to pass to OkHttp
+                                            StringBuilder rawCookies = new StringBuilder();
+                                            manager.visitAllCookies(new org.cef.callback.CefCookieVisitor() {
+                                                @Override
+                                                public boolean visit(org.cef.network.CefCookie c, int cCount, int cTotal, org.cef.misc.BoolRef cDelete) {
+                                                    rawCookies.append(c.name).append("=").append(c.value).append("; ");
+                                                    if (cCount == cTotal - 1) {
+                                                        portalRepository.injectRawCookies(rawCookies.toString());
+                                                        Platform.runLater(() -> completeCaptchaResolution(captchaStage, loginView, reg, pass, remember, hasAutoCompleted));
+                                                    }
+                                                    return true;
+                                                }
+                                            });
+                                        }
+                                    }
+                                    return true;
+                                }
+                            });
+                        }
+                    });
 
-                    // Path A: Challenge was encountered, clearance cookie obtained,
-                    // now we're back on the portal host without challenge markers.
-                    boolean challengeLooksSolved = onPortalHost
-                            && !onChallenge
-                            && challengeEncountered[0]
-                            && clearanceCookieSeen[0];
+                    // Create the browser component
+                    org.cef.browser.CefBrowser browser = client.createBrowser(PortalService.SIS_LOGIN_URL, false, false);
+                    java.awt.Component uiComponent = browser.getUIComponent();
 
-                    // Path B: No challenge was ever encountered — the server let us
-                    // through directly (no Turnstile required). Detect by being on
-                    // portal host, not on a challenge page, and not on the bare root.
-                    String path = "";
-                    try {
-                        path = new java.net.URI(locLower).getPath();
-                    } catch (Exception ignored) {}
-                    boolean isRoot = path == null || path.isEmpty() || "/".equals(path);
-                    boolean noChallengeBypass = onPortalHost
-                            && !onChallenge
-                            && !challengeEncountered[0]
-                            && !isRoot
-                            && !locLower.contains("login.aspx");
+                    // Embed the AWT component into JavaFX using SwingNode on the EDT
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.BorderLayout());
+                        panel.add(uiComponent, java.awt.BorderLayout.CENTER);
+                        swingNode.setContent(panel);
+                        
+                        Platform.runLater(() -> {
+                            centerLayout.getChildren().clear();
+                            centerLayout.getChildren().add(swingNode);
+                        });
+                    });
 
-                    if (challengeLooksSolved || noChallengeBypass) {
-                        completeCaptchaResolution(captchaStage, loginView, reg, pass, remember, hasAutoCompleted);
-                    }
+                    // Update close handler to dispose of CEF client
+                    Platform.runLater(() -> {
+                        captchaStage.setOnCloseRequest(e -> {
+                            captchaDialogShowing = false;
+                            browser.close(true);
+                            client.dispose();
+                            if (loginView != null) {
+                                loginView.getLoginButton().setDisable(false);
+                                loginView.getLoginButton().setText("Sign In");
+                            } else if (!isMainAppShowing) {
+                                portalRepository.setOfflineMode(true);
+                                setSessionCredentials(reg, pass);
+                                showMainApp();
+                                notificationService.showWarning("Offline Mode: Using cached data. Click 'Sync Portal' to go online.");
+                            }
+                        });
+                    });
+
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    Platform.runLater(() -> {
+                        loadingLabel.setText("Error: " + ex.getMessage());
+                        loadingSpinner.setVisible(false);
+                    });
                 }
-            });
+            }).start();
 
-            captchaStage.setOnCloseRequest(e -> {
-                captchaDialogShowing = false;
-                if (loginView != null) {
-                    loginView.getLoginButton().setDisable(false);
-                    loginView.getLoginButton().setText("Sign In");
-                } else if (!isMainAppShowing) {
-                    portalRepository.setOfflineMode(true);
-                    setSessionCredentials(reg, pass);
-                    showMainApp();
-                    notificationService.showWarning("Offline Mode: Using cached data. Click 'Sync Portal' to go online.");
-                }
-            });
-
+            // setOnCloseRequest is now handled inside the thread above to clean up CEF resources
+            
             Scene scene = new Scene(rootLayout, 650, 600);
             captchaStage.setScene(scene);
             
@@ -474,8 +499,6 @@ public class AppContext {
             captchaStage.setY(stage.getY() + (stage.getHeight() - 600) / 2);
 
             captchaStage.show();
-
-            engine.load(PortalService.SIS_LOGIN_URL);
         });
     }
 

@@ -46,12 +46,22 @@ public class Main extends Application {
             try {
                 new javafx.scene.web.WebView();
             } catch (Throwable ignored) {}
+            
+            // Start downloading/initializing JCEF in the background early
+            new Thread(() -> {
+                try {
+                    com.assignly.service.JcefService.initialize(com.assignly.util.AppDirectoryHelper.getAppDataDir());
+                } catch (Exception e) {
+                    System.err.println("Failed to background-initialize JCEF: " + e.getMessage());
+                }
+            }, "JcefInitThread").start();
         });
         prewarm.play();
     }
 
     @Override
     public void stop() {
+        com.assignly.service.JcefService.dispose();
         if (context != null) {
             context.databaseManager().shutdown();
         }
