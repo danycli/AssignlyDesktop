@@ -93,7 +93,6 @@ public class PortalService {
               pass.focus();
               pass.value = '%s';
               pass.dispatchEvent(new Event('input', { bubbles: true }));
-              setTimeout(function() { submit.click(); }, 180);
             })();
             """.formatted(escapedRegistration, escapedPassword);
     }

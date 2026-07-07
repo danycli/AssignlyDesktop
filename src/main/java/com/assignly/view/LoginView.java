@@ -180,7 +180,7 @@ public class LoginView {
         VBox footer = new VBox(2);
         footer.setAlignment(Pos.CENTER);
         footer.setMaxWidth(480);
-        Label verLabel = new Label("v1.0.0");
+        Label verLabel = new Label("v1.1.0");
         verLabel.setStyle("-fx-font-size: 10px; -fx-text-fill: rgba(255, 255, 255, 0.25); -fx-font-weight: bold;");
         Label discLabel = new Label("Unofficial Client  •  Not Affiliated With COMSATS");
         discLabel.setStyle("-fx-font-size: 9px; -fx-text-fill: rgba(255, 255, 255, 0.2);");
