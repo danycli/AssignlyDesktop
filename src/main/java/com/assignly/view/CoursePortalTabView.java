@@ -2131,7 +2131,7 @@ private String formatFileSize(long bytes) {
         }).start();
     }
 
-    private void triggerAssignmentUpload(String submitUrl, Button btn) {
+    private void triggerAssignmentUpload(String submitUrl, Button btn, javafx.scene.Node cardToRemove) {
         if (!context.isOnline()) {
             context.notificationService().showError("Upload Offline", "Cannot upload assignments in offline mode.");
             return;
@@ -2164,17 +2164,12 @@ private String formatFileSize(long bytes) {
                     
                     if (result instanceof PortalRepository.UploadResult.Success) {
                         context.notificationService().showSuccess("Upload Complete", "Assignment uploaded successfully!");
-                        if ("portal_pending".equals(activeTab)) {
-                            loadPendingAssignmentsData(true);
-                        } else {
-                            loadAssignmentsData(true);
+                        if (cardToRemove != null && cardToRemove.getParent() instanceof javafx.scene.layout.Pane parent) {
+                            parent.getChildren().remove(cardToRemove);
                         }
                     } else {
-                        if ("portal_pending".equals(activeTab)) {
-                            loadPendingAssignmentsData(true);
-                        } else {
-                            loadAssignmentsData(true);
-                        }
+                        // On error, we still don't resync automatically to avoid spamming the portal, 
+                        // unless specifically needed, but error messages will guide the user.
                         if (result instanceof PortalRepository.UploadResult.NetworkError) {
                             context.notificationService().showError("Upload Failed", "Network connection error. Please try again.");
                         } else if (result instanceof PortalRepository.UploadResult.Timeout) {
@@ -2190,11 +2185,6 @@ private String formatFileSize(long bytes) {
                 ErrorReporter.logError("CoursePortalTabView#triggerAssignmentUpload", ex);
                 Platform.runLater(() -> {
                     if (btn != null) btn.setDisable(false);
-                    if ("portal_pending".equals(activeTab)) {
-                        loadPendingAssignmentsData(true);
-                    } else {
-                        loadAssignmentsData(true);
-                    }
                     context.notificationService().showError("Upload Error", "An unexpected error occurred: " + ex.getMessage());
                 });
             }
@@ -2318,7 +2308,7 @@ private String formatFileSize(long bytes) {
             Button subBtn = new Button("Submit");
             subBtn.setCursor(javafx.scene.Cursor.HAND);
             subBtn.setStyle("-fx-background-color: -color-accent; -fx-text-fill: white; -fx-font-size: 11px; -fx-font-weight: bold; -fx-background-radius: 6; -fx-padding: 6 12;");
-            subBtn.setOnAction(e -> triggerAssignmentUpload(pa.submitUrl, subBtn));
+            subBtn.setOnAction(e -> triggerAssignmentUpload(pa.submitUrl, subBtn, card));
             uploadButtons.add(subBtn);
             applyOfflineStateIfOffline(subBtn, "Submit");
             actionsRow.getChildren().add(subBtn);

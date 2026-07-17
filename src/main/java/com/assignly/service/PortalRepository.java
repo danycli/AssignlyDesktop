@@ -1,11 +1,18 @@
 package com.assignly.service;
 
+import com.assignly.database.DatabaseManager;
+import com.assignly.security.EncryptionUtil;
 import com.assignly.util.ErrorReporter;
 import okhttp3.*;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
 
 import java.io.File;
 import java.io.IOException;
@@ -97,8 +104,8 @@ public class PortalRepository {
     private static final String BASE_URL = "https://sis.cuiatd.edu.pk";
     private static final String BASE_HOST = "sis.cuiatd.edu.pk";
     private static final String LOGIN_URL = BASE_URL + "/Login.aspx";
-    private static final String USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+    public static final String USER_AGENT =
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15";
     private static final DateTimeFormatter PORTAL_DEADLINE_FMT =
             DateTimeFormatter.ofPattern("MMM dd ,yyyy HH:mm", Locale.US);
     private static final ZoneId PORTAL_ZONE = ZoneId.systemDefault();
@@ -125,14 +132,37 @@ public class PortalRepository {
     );
 
     // ---------- Session state ----------
+    private final DatabaseManager databaseManager;
+    private volatile boolean offlineMode = false;
     private final Map<String, Map<String, Cookie>> cookieStore = new ConcurrentHashMap<>();
     private final Map<String, java.util.concurrent.CompletableFuture<String>> inFlightRequests = new ConcurrentHashMap<>();
     private volatile String currentStudentName;
     private volatile String currentStudentPhotoUrl;
     private Runnable onSessionExpiredCallback;
+    private volatile boolean suppressSessionExpiredCallback = false;
+
+    public PortalRepository() {
+        this.databaseManager = null;
+    }
+
+    public PortalRepository(DatabaseManager databaseManager) {
+        this.databaseManager = databaseManager;
+    }
+
+    public boolean isOfflineMode() {
+        return offlineMode;
+    }
+
+    public void setOfflineMode(boolean offlineMode) {
+        this.offlineMode = offlineMode;
+    }
 
     public void setOnSessionExpiredCallback(Runnable callback) {
         this.onSessionExpiredCallback = callback;
+    }
+
+    public void setSuppressSessionExpiredCallback(boolean suppress) {
+        this.suppressSessionExpiredCallback = suppress;
     }
 
     private final OkHttpClient client = new OkHttpClient.Builder()
@@ -141,6 +171,7 @@ public class PortalRepository {
                 public void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
                     Map<String, Cookie> host = cookieStore.computeIfAbsent(url.host(), k -> new ConcurrentHashMap<>());
                     for (Cookie c : cookies) host.put(c.name(), c);
+                    saveSessionCookies();
                 }
                 @Override
                 public List<Cookie> loadForRequest(HttpUrl url) {
@@ -185,7 +216,13 @@ public class PortalRepository {
                             if (mediaType != null && mediaType.subtype().equalsIgnoreCase("html")) {
                                 String bodyString = response.peekBody(1024 * 1024).string();
                                 if (bodyString.contains("txtUsername") || bodyString.contains("btnLogin")) {
-                                    if (onSessionExpiredCallback != null) {
+                                    // Check if this is actually a Cloudflare challenge page, not a real login redirect
+                                    String bodyLower = bodyString.toLowerCase();
+                                    boolean isCloudflareChallenge = bodyLower.contains("cf_chl")
+                                            || bodyLower.contains("challenges.cloudflare.com")
+                                            || bodyLower.contains("cf-browser-verification")
+                                            || bodyLower.contains("cf-turnstile");
+                                    if (onSessionExpiredCallback != null && !suppressSessionExpiredCallback && !isCloudflareChallenge) {
                                         onSessionExpiredCallback.run();
                                     }
                                     throw new SessionExpiredException("Session expired. Portal redirected to Login.");
@@ -258,7 +295,8 @@ public class PortalRepository {
                 .head()
                 .build();
             try (okhttp3.Response response = client.newCall(request).execute()) {
-                return response.isSuccessful() || response.code() == 302; // Redirects to login are fine
+                // Any HTTP response means the portal server is responding and we are online.
+                return true;
             }
         } catch (java.io.IOException e) {
             return false;
@@ -469,14 +507,14 @@ public class PortalRepository {
 
     // ---------- Fetch Dashboard data ----------
     public DashboardData fetchDashboard() {
-        String html = fetchPageHtml("Dashboard.aspx");
+        String html = fetchPageHtml("CoursePortal.aspx");
         if (html == null) return null;
         return parseDashboard(html);
     }
 
     public DashboardData parseDashboard(String html) {
         if (html == null || html.isBlank()) return null;
-        Document doc = Jsoup.parse(html, BASE_URL + "/Dashboard.aspx");
+        Document doc = Jsoup.parse(html, BASE_URL + "/CoursePortal.aspx");
 
         // 1. Parse student info table (key-value pairs from the top table)
         Map<String, String> info = new LinkedHashMap<>();
@@ -500,7 +538,7 @@ public class PortalRepository {
         }
 
         // 2. Parse photo URL
-        String photoUrl = parseStudentPhotoUrlFromHtml(html, BASE_URL + "/Dashboard.aspx");
+        String photoUrl = parseStudentPhotoUrlFromHtml(html, BASE_URL + "/CoursePortal.aspx");
         if (photoUrl != null) currentStudentPhotoUrl = photoUrl;
 
         // Update student name from the info table
@@ -792,6 +830,7 @@ public class PortalRepository {
 
     /** Download an image as raw bytes specifying a custom referer */
     public byte[] fetchPhotoBytes(String photoUrl, String referer) {
+        if (offlineMode) return null;
         if (photoUrl == null || photoUrl.isBlank()) return null;
         try {
             Request request = new Request.Builder()
@@ -1097,6 +1136,7 @@ public class PortalRepository {
 
     // ---------- Fetch page HTML (for tabbed portal views) ----------
     public String fetchPageHtml(String relativeUrl) {
+        if (offlineMode) return null;
         boolean[] isCreator = {false};
         java.util.concurrent.CompletableFuture<String> future = inFlightRequests.computeIfAbsent(relativeUrl, k -> {
             isCreator[0] = true;
@@ -1599,9 +1639,227 @@ public class PortalRepository {
         inFlightRequests.clear();
         currentStudentName = null;
         currentStudentPhotoUrl = null;
+        if (databaseManager != null) {
+            try (Connection conn = databaseManager.getConnection();
+                 Statement stmt = conn.createStatement()) {
+                stmt.executeUpdate("DELETE FROM session_cookies");
+            } catch (Exception e) {
+                System.err.println("Failed to delete session cookies on clearSessionState: " + e.getMessage());
+            }
+        }
     }
 
-    private boolean hasSessionCookiesForHost(String host) {
+    public void addCookie(String domain, okhttp3.Cookie cookie) {
+        String cleanDomain = domain.startsWith(".") ? domain.substring(1) : domain;
+        Map<String, Cookie> hostCookies = cookieStore.computeIfAbsent(cleanDomain, k -> new ConcurrentHashMap<>());
+        hostCookies.put(cookie.name(), cookie);
+    }
+
+    /**
+     * Injects raw cookie string directly into OkHttp and Java CookieManager.
+     */
+    public void injectRawCookies(String rawCookies) {
+        if (rawCookies == null || rawCookies.isBlank()) return;
+        
+        java.net.CookieManager cm = null;
+        try {
+            if (java.net.CookieHandler.getDefault() instanceof java.net.CookieManager) {
+                cm = (java.net.CookieManager) java.net.CookieHandler.getDefault();
+            }
+        } catch (Exception ignored) {}
+
+        String[] pairs = rawCookies.split(";");
+        for (String pair : pairs) {
+            String[] parts = pair.split("=", 2);
+            if (parts.length == 2) {
+                String name = parts[0].trim();
+                String value = parts[1].trim();
+                
+                // Add to OkHttp
+                Cookie cookie = new Cookie.Builder()
+                        .name(name)
+                        .value(value)
+                        .domain(BASE_HOST)
+                        .path("/")
+                        .build();
+                addCookie(BASE_HOST, cookie);
+
+                // Add to Java CookieManager
+                if (cm != null) {
+                    java.net.HttpCookie hc = new java.net.HttpCookie(name, value);
+                    hc.setDomain(BASE_HOST);
+                    hc.setPath("/");
+                    try {
+                        cm.getCookieStore().add(new java.net.URI(BASE_URL), hc);
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
+    }
+
+    public void importCookiesFromDefaultManager() {
+        try {
+            java.net.CookieHandler handler = java.net.CookieHandler.getDefault();
+            if (handler instanceof java.net.CookieManager cookieManager) {
+                java.net.CookieStore netCookieStore = cookieManager.getCookieStore();
+                List<java.net.HttpCookie> netCookies = netCookieStore.getCookies();
+                for (java.net.HttpCookie netCookie : netCookies) {
+                    String domain = netCookie.getDomain();
+                    if (domain == null || domain.isEmpty()) {
+                        domain = BASE_HOST;
+                    }
+                    if (domain.startsWith(".")) {
+                        domain = domain.substring(1);
+                    }
+                    // Filter for our domain. Allow cookies set on the exact host or parent domains (e.g. cuiatd.edu.pk)
+                    if (!BASE_HOST.toLowerCase().endsWith(domain.toLowerCase())) {
+                        continue;
+                    }
+
+                    String path = netCookie.getPath();
+                    if (path == null || path.isEmpty()) {
+                        path = "/";
+                    }
+
+                    long expiresAt = -1;
+                    long maxAge = netCookie.getMaxAge();
+                    if (maxAge > 0) {
+                        expiresAt = System.currentTimeMillis() + (maxAge * 1000);
+                    } else {
+                        // persistent for session or long-lived
+                        expiresAt = System.currentTimeMillis() + (24L * 3600 * 1000); // 1 day
+                    }
+
+                    okhttp3.Cookie.Builder builder = new okhttp3.Cookie.Builder()
+                            .name(netCookie.getName())
+                            .value(netCookie.getValue())
+                            .domain(domain)
+                            .path(path)
+                            .expiresAt(expiresAt);
+
+                    if (netCookie.getSecure()) {
+                        builder.secure();
+                    }
+                    if (netCookie.isHttpOnly()) {
+                        builder.httpOnly();
+                    }
+
+                    okhttp3.Cookie okCookie = builder.build();
+                    addCookie(domain, okCookie);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to import cookies: " + e.getMessage());
+        }
+    }
+
+    public synchronized void saveSessionCookies() {
+        if (databaseManager == null) return;
+        try (Connection conn = databaseManager.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.executeUpdate("DELETE FROM session_cookies");
+            try (PreparedStatement pstmt = conn.prepareStatement(
+                    "INSERT INTO session_cookies (name, value, domain, path, expires_at, secure, http_only) VALUES (?, ?, ?, ?, ?, ?, ?)")) {
+                for (Map<String, Cookie> domainCookies : cookieStore.values()) {
+                    for (Cookie cookie : domainCookies.values()) {
+                        if (cookie.expiresAt() > System.currentTimeMillis() && cookie.domain().toLowerCase().contains("sis.cuiatd.edu.pk")) {
+                            pstmt.setString(1, cookie.name());
+                            String encryptedVal = EncryptionUtil.encrypt(cookie.value());
+                            pstmt.setString(2, encryptedVal);
+                            pstmt.setString(3, cookie.domain());
+                            pstmt.setString(4, cookie.path());
+                            pstmt.setLong(5, cookie.expiresAt());
+                            pstmt.setInt(6, cookie.secure() ? 1 : 0);
+                            pstmt.setInt(7, cookie.httpOnly() ? 1 : 0);
+                            pstmt.addBatch();
+                        }
+                    }
+                }
+                pstmt.executeBatch();
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to save session cookies: " + e.getMessage());
+        }
+    }
+
+    public synchronized void loadSessionCookies() {
+        if (databaseManager == null) return;
+        try (Connection conn = databaseManager.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(
+                     "SELECT name, value, domain, path, expires_at, secure, http_only FROM session_cookies")) {
+            ResultSet rs = pstmt.executeQuery();
+            long now = System.currentTimeMillis();
+            while (rs.next()) {
+                String name = rs.getString("name");
+                String encryptedVal = rs.getString("value");
+                String domain = rs.getString("domain");
+                String path = rs.getString("path");
+                long expiresAt = rs.getLong("expires_at");
+                boolean secure = rs.getInt("secure") == 1;
+                boolean httpOnly = rs.getInt("http_only") == 1;
+
+                if (expiresAt > now) {
+                    try {
+                        String decryptedVal = EncryptionUtil.decrypt(encryptedVal);
+                        Cookie.Builder builder = new Cookie.Builder()
+                                .name(name)
+                                .value(decryptedVal)
+                                .domain(domain)
+                                .path(path)
+                                .expiresAt(expiresAt);
+                        if (secure) builder.secure();
+                        if (httpOnly) builder.httpOnly();
+                        
+                        Cookie cookie = builder.build();
+                        addCookie(domain, cookie);
+                    } catch (Exception ex) {
+                        System.err.println("Failed to decrypt cookie " + name + ": " + ex.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to load session cookies: " + e.getMessage());
+        }
+    }
+
+    public boolean verifySession(String username) {
+        try {
+            String normalizedUser = username.trim().toUpperCase(Locale.ROOT);
+            Request verifyRequest = new Request.Builder()
+                    .url(BASE_URL + "/CoursePortal.aspx")
+                    .header("Referer", LOGIN_URL)
+                    .header("User-Agent", USER_AGENT)
+                    .build();
+
+            try (Response response = client.newCall(verifyRequest).execute()) {
+                String body = response.body() != null ? response.body().string() : "";
+                String resolvedUrl = response.request().url().toString();
+                if (!response.isSuccessful()) return false;
+                if (isSecurityVerificationResponse(response, resolvedUrl, body)) return false;
+                if (isSecurityVerificationPage(resolvedUrl, body)) return false;
+                if (isLoginPage(resolvedUrl, body)) return false;
+
+                StudentProfile profile = parseStudentProfileFromHtml(body);
+                boolean profileMatches = doesProfileMatchRequestedUsername(normalizedUser, profile, body);
+                
+                if (profileMatches) {
+                    currentStudentName = profile.name() != null ? profile.name() : parseStudentNameFromHtml(body);
+                    currentStudentPhotoUrl = parseStudentPhotoUrlFromHtml(body, resolvedUrl);
+                    return hasSessionCookiesForHost(BASE_HOST);
+                }
+                return false;
+            }
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    List<Cookie> getCookiesForTest(String host) {
+        Map<String, Cookie> cookies = cookieStore.get(host);
+        return cookies == null ? List.of() : new ArrayList<>(cookies.values());
+    }
+
+    public boolean hasSessionCookiesForHost(String host) {
         Map<String, Cookie> cookies = cookieStore.get(host);
         if (cookies == null) return false;
         long now = System.currentTimeMillis();
@@ -1726,6 +1984,9 @@ public class PortalRepository {
      * Download a file from the portal using the active authenticated session.
      */
     public Response downloadFile(String relativeUrl) throws IOException {
+        if (offlineMode) {
+            throw new IOException("Offline Mode Active");
+        }
         String url = relativeUrl.startsWith("http") ? relativeUrl : BASE_URL + "/" + relativeUrl;
         Request request = new Request.Builder()
                 .url(url)
@@ -3112,7 +3373,9 @@ public class PortalRepository {
                     responseHtml.toLowerCase().contains("file uploaded") ||
                     responseHtml.toLowerCase().contains("your file has been submitted") ||
                     responseHtml.toLowerCase().contains("assignment file updated succefully") ||
-                    responseHtml.toLowerCase().contains("assignment file updated successfully");
+                    responseHtml.toLowerCase().contains("assignment file updated successfully") ||
+                    responseHtml.toLowerCase().contains("submitted successfully") ||
+                    responseHtml.toLowerCase().contains("uploaded successfully");
 
             boolean hasViewstate = responseHtml.toLowerCase().contains("__viewstate");
             boolean hasForm = responseHtml.toLowerCase().contains("<form");

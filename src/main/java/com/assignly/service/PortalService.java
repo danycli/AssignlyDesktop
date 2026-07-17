@@ -14,10 +14,21 @@ public class PortalService {
         if (registrationNo == null || registrationNo.isBlank() || password == null || password.isBlank()) {
             return;
         }
+        // Single-element array to allow mutation from within the lambda closure.
+        // The script fires at most once per WebEngine session — if the user needs to
+        // re-attempt (e.g., wrong credentials), showCaptchaDialog() creates a new
+        // WebEngine which gets a fresh enableAutoLogin() call with a fresh guard.
+        final boolean[] injected = {false};
         webEngine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
-            if (newState == Worker.State.SUCCEEDED && webEngine.getLocation().toLowerCase().contains("login.aspx")) {
-                String script = buildAutoLoginScript(registrationNo, password);
-                webEngine.executeScript(script);
+            if (!injected[0] && newState == Worker.State.SUCCEEDED) {
+                String loc = webEngine.getLocation() != null ? webEngine.getLocation().toLowerCase() : "";
+                String title = webEngine.getTitle() != null ? webEngine.getTitle().toLowerCase() : "";
+                
+                if (!loc.contains("cdn-cgi") && !title.contains("just a moment") && loc.contains("login.aspx")) {
+                    injected[0] = true;
+                    String script = buildAutoLoginScript(registrationNo, password);
+                    webEngine.executeScript(script);
+                }
             }
         });
     }
@@ -40,8 +51,25 @@ public class PortalService {
     }
 
     public void applyDarkOverlay(WebEngine webEngine, boolean enabled) {
+        // Fast-path URL check in Java before even evaluating JavaScript
+        String loc = webEngine.getLocation();
+        if (loc != null && (loc.contains("/cdn-cgi/") || loc.contains("challenge-platform"))) {
+            return;
+        }
+
         String script = """
             (function() {
+              // Strict safety guard to prevent style injection from polluting DOM during a challenge
+              const isCaptchaActive = document.querySelector('[id*="cf-challenge"]') != null || 
+                                      document.querySelector('.cf-turnstile') != null || 
+                                      document.querySelector('iframe[src*="cloudflare"]') != null ||
+                                      document.title.toLowerCase().includes('just a moment') ||
+                                      (document.body && document.body.innerHTML.toLowerCase().includes('cloudflare'));
+                                      
+              if (isCaptchaActive || window.location.href.includes('cdn-cgi')) {
+                  return; // Abort injection
+              }
+
               const styleId = 'assignly-dark-overlay';
               let style = document.getElementById(styleId);
               if (%s) {
@@ -82,18 +110,33 @@ public class PortalService {
                 return null;
               }
 
+              // Strict safety guard to prevent style injection from polluting DOM during a challenge
+              const isCaptchaActive = document.querySelector('[id*="cf-challenge"]') != null || 
+                                      document.querySelector('.cf-turnstile') != null || 
+                                      document.querySelector('iframe[src*="cloudflare"]') != null ||
+                                      document.title.toLowerCase().includes('just a moment') ||
+                                      (document.body && document.body.innerHTML.toLowerCase().includes('cloudflare'));
+                                      
+              if (isCaptchaActive) {
+                  console.warn("Cloudflare Challenge detected. Aborting auto-fill.");
+                  return;
+              }
+
               const reg = first(regCandidates);
               const pass = first(passCandidates);
-              const submit = first(submitCandidates);
-              if (!reg || !pass || !submit) return;
+              
+              if (!reg || !pass) return;
 
-              reg.focus();
-              reg.value = '%s';
-              reg.dispatchEvent(new Event('input', { bubbles: true }));
-              pass.focus();
-              pass.value = '%s';
-              pass.dispatchEvent(new Event('input', { bubbles: true }));
-              setTimeout(function() { submit.click(); }, 180);
+              // Only inject if the registration input field '.value' properties are completely empty
+              if (reg.value === '') {
+                  reg.value = '%s';
+                  reg.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+              
+              if (pass.value === '') {
+                  pass.value = '%s';
+                  pass.dispatchEvent(new Event('change', { bubbles: true }));
+              }
             })();
             """.formatted(escapedRegistration, escapedPassword);
     }

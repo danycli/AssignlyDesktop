@@ -34,7 +34,7 @@ Remove-Item -Path "target/libs/apiguardian-*" -Force -ErrorAction SilentlyContin
 Remove-Item -Path "target/libs/opentest4j-*" -Force -ErrorAction SilentlyContinue
 
 Write-Host "=== Step 4: Copying main jar to target/libs ===" -ForegroundColor Cyan
-Copy-Item -Path "target/assignly-desktop-1.0.0.jar" -Destination "target/libs/assignly-desktop-1.0.0.jar" -Force
+Copy-Item -Path "target/assignly-desktop-1.1.0.jar" -Destination "target/libs/assignly-desktop-1.1.0.jar" -Force
 
 Write-Host "=== Step 5: Generating custom, lightweight Java Runtime Image (jlink) ===" -ForegroundColor Cyan
 # Remove old runtime if exists
@@ -65,11 +65,11 @@ jpackage --type exe `
          --input target/libs `
          --dest target/installer `
          --name "AssignlyDesktop" `
-         --main-jar assignly-desktop-1.0.0.jar `
+         --main-jar assignly-desktop-1.1.0.jar `
          --main-class com.assignly.Launcher `
          --runtime-image target/custom-runtime `
          --icon "src/main/resources/com/assignly/images/favicon.ico" `
-         --app-version "1.0.0" `
+         --app-version "1.1.0" `
          --vendor "Assignly" `
          --win-dir-chooser `
          --win-shortcut `
@@ -77,4 +77,4 @@ jpackage --type exe `
          --win-menu-group "Assignly"
 
 Write-Host "=== Build SUCCESS ===" -ForegroundColor Green
-Write-Host "Installer is available at: target/installer/AssignlyDesktop-1.0.0.exe" -ForegroundColor Green
+Write-Host "Installer is available at: target/installer/AssignlyDesktop-1.1.0.exe" -ForegroundColor Green

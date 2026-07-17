@@ -28,6 +28,7 @@ import javafx.scene.control.Separator;
 import javafx.scene.layout.*;
 import javafx.stage.Popup;
 import javafx.stage.Stage;
+import javafx.stage.Modality;
 import javafx.scene.effect.DropShadow;
 import javafx.scene.paint.Color;
 import org.jsoup.Jsoup;
@@ -52,6 +53,9 @@ import javafx.scene.SnapshotParameters;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.scene.web.WebView;
+import javafx.scene.web.WebEngine;
+import javafx.scene.control.ProgressBar;
+import javafx.concurrent.Worker;
 import javafx.util.Duration;
 import java.io.ByteArrayInputStream;
 import java.util.concurrent.Executors;
@@ -98,6 +102,7 @@ public class AppContext {
     private Label headerTitleLabel;
     private Button syncPortalBtn;
     private boolean isSyncing = false;
+    private boolean isMainAppShowing = false;
     private Label statusLabel;
     private Label syncTimeLabel;
     private Circle statusIndicator;
@@ -107,6 +112,9 @@ public class AppContext {
     private final java.util.concurrent.ConcurrentMap<String, java.util.concurrent.CompletableFuture<String>> inFlightCaches = new java.util.concurrent.ConcurrentHashMap<>();
     private volatile boolean isOnline = true;
     private final java.util.List<java.lang.ref.WeakReference<java.util.function.Consumer<Boolean>>> connectivityListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private volatile boolean captchaDialogShowing = false;
+    private volatile boolean captchaResolved = false;
+    // Native maximize state preserves taskbar visibility using setMaximizedBounds
 
     public void addConnectivityListener(java.util.function.Consumer<Boolean> listener) {
         connectivityListeners.removeIf(ref -> ref.get() == null);
@@ -137,9 +145,19 @@ public class AppContext {
         this.portalService = portalService;
         this.notificationService = new NotificationService(this);
         this.updateService = new UpdateService(this);
-        this.portalRepository = new PortalRepository();
+        this.portalRepository = new PortalRepository(databaseManager);
+        
+        // Initialize default cookie manager for JavaFX WebView
+        try {
+            if (java.net.CookieHandler.getDefault() == null) {
+                java.net.CookieHandler.setDefault(new java.net.CookieManager(null, java.net.CookiePolicy.ACCEPT_ALL));
+            }
+        } catch (Exception ignored) {}
         this.portalRepository.setOnSessionExpiredCallback(() -> {
             javafx.application.Platform.runLater(() -> {
+                if (portalRepository.isOfflineMode() || !isMainAppShowing || captchaResolved || captchaDialogShowing) {
+                    return;
+                }
                 notificationService.showError("Session expired. Please log in again.");
                 credentialManager.clearRememberMe();
                 clearSessionCredentials();
@@ -181,13 +199,35 @@ public class AppContext {
         setScene(splash, "Assignly Desktop", 1000, 650);
 
         new Thread(() -> {
-            PortalRepository.LoginResult result = portalRepository.login(reg, password);
+            portalRepository.loadSessionCookies();
+            boolean isValid = portalRepository.verifySession(reg);
+            boolean isOnline = checkConnectivity();
+            
+            if (!isValid && isOnline) {
+                com.assignly.service.PortalRepository.LoginResult res = portalRepository.login(reg, password);
+                if (res instanceof com.assignly.service.PortalRepository.LoginResult.Success) {
+                    isValid = true;
+                    portalRepository.saveSessionCookies();
+                }
+            }
+            
+            final boolean finalIsValid = isValid;
+
             Platform.runLater(() -> {
-                if (result instanceof PortalRepository.LoginResult.Success) {
+                if (finalIsValid) {
+                    portalRepository.setOfflineMode(false);
                     setSessionCredentials(reg, password);
                     showMainApp();
                 } else {
-                    showLoginScreen();
+                    if (isOnline) {
+                        showCaptchaDialog(null, reg, password, true);
+                    } else {
+                        portalRepository.setOfflineMode(true);
+                        setSessionCredentials(reg, password);
+                        showMainApp();
+                        
+                        notificationService.showWarning("Offline Mode: Using cached data. Click 'Sync Portal' to go online.");
+                    }
                 }
             });
         }).start();
@@ -243,24 +283,326 @@ public class AppContext {
         loginView.getErrorLabel().setVisible(false);
 
         new Thread(() -> {
-            PortalRepository.LoginResult result = portalRepository.login(reg, pass);
+            boolean isOnline = checkConnectivity();
+            if (!isOnline) {
+                Platform.runLater(() -> showLoginError(loginView, "No internet connection. Cannot authenticate new session."));
+                return;
+            }
+            
+            com.assignly.service.PortalRepository.LoginResult result = portalRepository.login(reg, pass);
             Platform.runLater(() -> {
-                if (result instanceof PortalRepository.LoginResult.Success) {
+                if (result instanceof com.assignly.service.PortalRepository.LoginResult.Success) {
+                    portalRepository.saveSessionCookies();
                     credentialManager.saveCredentials(reg, pass, remember);
                     UserPreferences prefs = preferencesService.loadPreferences();
                     prefs.setAutoLogin(remember);
                     preferencesService.savePreferences(prefs);
                     setSessionCredentials(reg, pass);
                     showMainApp();
-                } else if (result instanceof PortalRepository.LoginResult.InvalidCredentials) {
-                    showLoginError(loginView, "Invalid registration number or password.");
-                } else if (result instanceof PortalRepository.LoginResult.CaptchaRequired) {
-                    showLoginError(loginView, "Security check required. Try again later.");
-                } else if (result instanceof PortalRepository.LoginResult.Error err) {
-                    showLoginError(loginView, err.message());
+                } else if (result instanceof com.assignly.service.PortalRepository.LoginResult.CaptchaRequired) {
+                    showCaptchaDialog(loginView, reg, pass, remember);
+                } else if (result instanceof com.assignly.service.PortalRepository.LoginResult.InvalidCredentials) {
+                    showLoginError(loginView, "Invalid Registration Number or Password.");
+                } else if (result instanceof com.assignly.service.PortalRepository.LoginResult.Error) {
+                    showLoginError(loginView, "Error connecting to portal: " + ((com.assignly.service.PortalRepository.LoginResult.Error) result).message());
                 }
             });
         }).start();
+    }
+
+    private void showCaptchaDialog(LoginView loginView, String reg, String pass, boolean remember) {
+        if (captchaDialogShowing) return;
+        captchaDialogShowing = true;
+        Platform.runLater(() -> {
+            try {
+                if (java.net.CookieHandler.getDefault() == null) {
+                    java.net.CookieHandler.setDefault(new java.net.CookieManager(null, java.net.CookiePolicy.ACCEPT_ALL));
+                } else if (java.net.CookieHandler.getDefault() instanceof java.net.CookieManager cm) {
+                    cm.setCookiePolicy(java.net.CookiePolicy.ACCEPT_ALL);
+                    cm.getCookieStore().removeAll();
+                }
+            } catch (Exception ex) {
+                // ignore
+            }
+            try {
+                portalRepository.clearSessionState();
+            } catch (Exception ignored) {}
+
+            Stage captchaStage = new Stage();
+            captchaStage.initModality(Modality.APPLICATION_MODAL);
+            captchaStage.initOwner(stage);
+            captchaStage.setTitle("Security Verification");
+            captchaStage.setResizable(true);
+
+            BorderPane rootLayout = new BorderPane();
+            rootLayout.setStyle("-fx-background-color: #0b0f13;");
+
+            VBox header = new VBox(4);
+            header.setPadding(new Insets(16, 20, 16, 20));
+            header.setStyle("-fx-background-color: #14181c; -fx-border-color: #282e38; -fx-border-width: 0 0 1 0;");
+            
+            Label titleLabel = new Label("COMSATS SIS Portal Login");
+            titleLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #F5F7FA;");
+            
+            Label subtitleLabel = new Label("Please complete the authentication and CAPTCHA to continue.");
+            subtitleLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: #9CA3AF;");
+            
+            header.getChildren().addAll(titleLabel, subtitleLabel);
+            rootLayout.setTop(header);
+
+            javafx.embed.swing.SwingNode swingNode = new javafx.embed.swing.SwingNode();
+            
+            VBox centerLayout = new VBox(16);
+            centerLayout.setAlignment(javafx.geometry.Pos.CENTER);
+            
+            Label loadingLabel = new Label("Initializing Chromium Engine...\n(First time setup may take a few minutes to download)");
+            loadingLabel.setStyle("-fx-text-fill: #14b8a6; -fx-font-size: 14px; -fx-text-alignment: center;");
+            ProgressIndicator loadingSpinner = new ProgressIndicator();
+            centerLayout.getChildren().addAll(loadingSpinner, loadingLabel);
+            
+            VBox.setVgrow(swingNode, Priority.ALWAYS);
+            rootLayout.setCenter(centerLayout);
+
+            final boolean[] challengeEncountered = {false};
+            final boolean[] clearanceCookieSeen = {false};
+            final boolean[] hasAutoCompleted = {false};
+
+            new Thread(() -> {
+                try {
+                    // Initialize JCEF (blocks if downloading native binaries)
+                    com.assignly.service.JcefService.initialize(com.assignly.util.AppDirectoryHelper.getAppDataDir());
+                    org.cef.CefApp cefApp = com.assignly.service.JcefService.getApp();
+                    
+                    if (cefApp == null) {
+                        Platform.runLater(() -> {
+                            loadingLabel.setText("Failed to initialize Chromium Engine.");
+                            loadingLabel.setStyle("-fx-text-fill: #ef4444;");
+                            loadingSpinner.setVisible(false);
+                        });
+                        return;
+                    }
+
+                    org.cef.CefClient client = cefApp.createClient();
+                    
+                    // Add Load Handler for URL detection and cookie polling
+                    client.addLoadHandler(new org.cef.handler.CefLoadHandlerAdapter() {
+                        @Override
+                        public void onLoadStart(org.cef.browser.CefBrowser browser, org.cef.browser.CefFrame frame, org.cef.network.CefRequest.TransitionType transitionType) {
+                            String urlLower = browser.getURL().toLowerCase();
+                            if (isLikelyChallengeUrl(urlLower)) {
+                                challengeEncountered[0] = true;
+                            }
+                        }
+
+                        @Override
+                        public void onLoadEnd(org.cef.browser.CefBrowser browser, org.cef.browser.CefFrame frame, int httpStatusCode) {
+                            if (hasAutoCompleted[0]) return;
+                            String urlLower = browser.getURL().toLowerCase();
+                            
+                            org.cef.network.CefCookieManager manager = org.cef.network.CefCookieManager.getGlobalManager();
+                            
+                            // 1. Poll for cf_clearance
+                            manager.visitAllCookies(new org.cef.callback.CefCookieVisitor() {
+                                @Override
+                                public boolean visit(org.cef.network.CefCookie cookie, int count, int total, org.cef.misc.BoolRef delete) {
+                                    if ("cf_clearance".equalsIgnoreCase(cookie.name)) {
+                                        clearanceCookieSeen[0] = true;
+                                    }
+                                    
+                                    // If we've seen all cookies, check for success
+                                    if (count == total - 1) {
+                                        boolean onPortalHost = isPortalHostUrl(urlLower);
+                                        boolean onChallenge = isLikelyChallengeUrl(urlLower);
+                                        boolean challengeLooksSolved = onPortalHost && !onChallenge && challengeEncountered[0] && clearanceCookieSeen[0];
+                                        
+                                        String path = "";
+                                        try {
+                                            path = new java.net.URI(urlLower).getPath();
+                                        } catch (Exception ignored) {}
+                                        boolean isRoot = path == null || path.isEmpty() || "/".equals(path);
+                                        boolean noChallengeBypass = onPortalHost && !onChallenge && !challengeEncountered[0] && !isRoot && !urlLower.contains("login.aspx");
+
+                                        if (challengeLooksSolved || noChallengeBypass) {
+                                            if (hasAutoCompleted[0]) return true;
+                                            hasAutoCompleted[0] = true;
+                                            
+                                            // Extract all CEF cookies to pass to OkHttp
+                                            StringBuilder rawCookies = new StringBuilder();
+                                            manager.visitAllCookies(new org.cef.callback.CefCookieVisitor() {
+                                                @Override
+                                                public boolean visit(org.cef.network.CefCookie c, int cCount, int cTotal, org.cef.misc.BoolRef cDelete) {
+                                                    rawCookies.append(c.name).append("=").append(c.value).append("; ");
+                                                    if (cCount == cTotal - 1) {
+                                                        portalRepository.injectRawCookies(rawCookies.toString());
+                                                        Platform.runLater(() -> completeCaptchaResolution(captchaStage, loginView, reg, pass, remember, hasAutoCompleted));
+                                                    }
+                                                    return true;
+                                                }
+                                            });
+                                        }
+                                    }
+                                    return true;
+                                }
+                            });
+                        }
+                    });
+
+                    // Create the browser component
+                    org.cef.browser.CefBrowser browser = client.createBrowser(PortalService.SIS_LOGIN_URL, false, false);
+                    java.awt.Component uiComponent = browser.getUIComponent();
+
+                    // Embed the AWT component into JavaFX using SwingNode on the EDT
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.BorderLayout());
+                        panel.add(uiComponent, java.awt.BorderLayout.CENTER);
+                        swingNode.setContent(panel);
+                        
+                        Platform.runLater(() -> {
+                            centerLayout.getChildren().clear();
+                            centerLayout.getChildren().add(swingNode);
+                        });
+                    });
+
+                    // Update close handler to dispose of CEF client
+                    Platform.runLater(() -> {
+                        captchaStage.setOnCloseRequest(e -> {
+                            captchaDialogShowing = false;
+                            browser.close(true);
+                            client.dispose();
+                            if (loginView != null) {
+                                loginView.getLoginButton().setDisable(false);
+                                loginView.getLoginButton().setText("Sign In");
+                            } else if (!isMainAppShowing) {
+                                portalRepository.setOfflineMode(true);
+                                setSessionCredentials(reg, pass);
+                                showMainApp();
+                                notificationService.showWarning("Offline Mode: Using cached data. Click 'Sync Portal' to go online.");
+                            }
+                        });
+                    });
+
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    Platform.runLater(() -> {
+                        loadingLabel.setText("Error: " + ex.getMessage());
+                        loadingSpinner.setVisible(false);
+                    });
+                }
+            }).start();
+
+            // setOnCloseRequest is now handled inside the thread above to clean up CEF resources
+            
+            Scene scene = new Scene(rootLayout, 650, 600);
+            captchaStage.setScene(scene);
+            
+            captchaStage.setX(stage.getX() + (stage.getWidth() - 650) / 2);
+            captchaStage.setY(stage.getY() + (stage.getHeight() - 600) / 2);
+
+            captchaStage.show();
+        });
+    }
+
+    /**
+     * Completes the captcha resolution flow: imports cookies, saves credentials,
+     * closes the dialog, and proceeds to the main app or syncs data.
+     * Extracted to avoid duplication between challengeLooksSolved and noChallengeBypass paths.
+     */
+    private void completeCaptchaResolution(Stage captchaStage, LoginView loginView,
+                                            String reg, String pass, boolean remember,
+                                            boolean[] hasAutoCompleted) {
+        if (hasAutoCompleted[0]) return;
+        hasAutoCompleted[0] = true;
+
+        Platform.runLater(() -> {
+            new Thread(() -> {
+                // Retry cookie import a few times to ensure WebView cookies have propagated
+                int retries = 0;
+                boolean gotCookies = false;
+                while (retries < 10) {
+                    portalRepository.importCookiesFromDefaultManager();
+                    if (portalRepository.hasSessionCookiesForHost("sis.cuiatd.edu.pk")) {
+                        gotCookies = true;
+                        break;
+                    }
+                    try {
+                        Thread.sleep(150);
+                    } catch (InterruptedException ignored) {}
+                    retries++;
+                }
+
+                if (gotCookies) {
+                    Platform.runLater(() -> {
+                        portalRepository.saveSessionCookies();
+                        portalRepository.setOfflineMode(false);
+                        portalRepository.setSuppressSessionExpiredCallback(true);
+                        captchaResolved = true;
+                        captchaDialogShowing = false;
+                        captchaStage.close();
+                        
+                        credentialManager.saveCredentials(reg, pass, remember);
+                        UserPreferences prefs = preferencesService.loadPreferences();
+                        prefs.setAutoLogin(remember);
+                        preferencesService.savePreferences(prefs);
+                        setSessionCredentials(reg, pass);
+                        if (!isMainAppShowing) {
+                            showMainApp();
+                        } else {
+                            syncPortalData();
+                        }
+                    });
+                } else {
+                    // Could not get session cookies — reset so the user can try again
+                    hasAutoCompleted[0] = false;
+                }
+            }).start();
+        });
+    }
+
+    /**
+     * Checks whether a cf_clearance cookie exists in the java.net.CookieManager
+     * for the portal domain. This is the JavaFX equivalent of Android's
+     * CookieManager.getInstance().getCookie(url) check.
+     */
+    private boolean checkCfClearanceCookie() {
+        try {
+            java.net.CookieHandler handler = java.net.CookieHandler.getDefault();
+            if (handler instanceof java.net.CookieManager cm) {
+                for (java.net.HttpCookie cookie : cm.getCookieStore().getCookies()) {
+                    if ("cf_clearance".equalsIgnoreCase(cookie.getName())) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    /**
+     * Returns true if the URL looks like a Cloudflare challenge or captcha endpoint.
+     * Mirrors Android's isLikelyChallenge() URL checks.
+     */
+    private boolean isLikelyChallengeUrl(String urlLower) {
+        return urlLower.contains("/cdn-cgi/")
+                || urlLower.contains("challenge-platform")
+                || urlLower.contains("challenges.cloudflare.com")
+                || urlLower.contains("captcha");
+    }
+
+    /**
+     * Returns true if the URL's host matches the portal host (sis.cuiatd.edu.pk).
+     * Mirrors Android's isPortalHostUrl().
+     */
+    private boolean isPortalHostUrl(String urlLower) {
+        try {
+            String host = new java.net.URI(urlLower).getHost();
+            if (host == null) return false;
+            host = host.toLowerCase();
+            return host.equals("sis.cuiatd.edu.pk")
+                    || host.endsWith(".sis.cuiatd.edu.pk")
+                    || "sis.cuiatd.edu.pk".endsWith("." + host);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void showLoginError(LoginView view, String msg) {
@@ -272,6 +614,7 @@ public class AppContext {
 
     // ---------- Main App ----------
     public void showMainApp() {
+        isMainAppShowing = true;
         mainLayout = new BorderPane();
         mainLayout.getStyleClass().add("app-root");
 
@@ -348,7 +691,9 @@ public class AppContext {
         stage.setX((screenBounds.getWidth() - stage.getWidth()) / 2);
         stage.setY((screenBounds.getHeight() - stage.getHeight()) / 2);
         
-        notificationService.showSuccess("Successfully logged in");
+        if (!portalRepository.isOfflineMode()) {
+            notificationService.showSuccess("Successfully logged in");
+        }
         setupSearch();
         updateService.checkForUpdatesSilently((StackPane) stage.getScene().getRoot());
         
@@ -382,77 +727,82 @@ public class AppContext {
         Platform.runLater(() -> contentArea.requestFocus());
 
         // Background Pre-fetcher
-        new Thread(() -> {
-            fetchAndCacheHtml("Dashboard.aspx");
-            try {
-                String liveDash = dataCacheService.getCachedHtml("Dashboard.aspx").orElse(null);
-                if (liveDash != null) {
-                    PortalRepository.DashboardData liveData = portalRepository.parseDashboard(liveDash);
-                    if (liveData != null) {
-                        String name = portalRepository.getCurrentStudentName();
-                        String program = liveData.studentInfo().get("Program");
-                        updateSidebarProfile(name, program);
+        if (!portalRepository.isOfflineMode()) {
+            new Thread(() -> {
+                try { fetchAndCacheHtml("Dashboard.aspx"); } catch (Exception ignored) {}
+                try {
+                    String liveDash = dataCacheService.getCachedHtml("Dashboard.aspx").orElse(null);
+                    if (liveDash != null) {
+                        PortalRepository.DashboardData liveData = portalRepository.parseDashboard(liveDash);
+                        if (liveData != null) {
+                            String name = portalRepository.getCurrentStudentName();
+                            String program = liveData.studentInfo().get("Program");
+                            updateSidebarProfile(name, program);
+                        }
+                    }
+                } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("CoursePortal.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("Timetable.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("FeeChallans.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("FeeHistorySFMS.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("StudentResultCard.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("DateSheet.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("Summary.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("classproceedings.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("QAMarks.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("EntryCouponSelect.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("EntryCouponWithQR.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("AddCellEmailInfo.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("LoginHistory.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("scholarship/ViewScholarshipStatuse.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("CTS/CTSdashboard.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("CoursePortal.aspx?isTest=1"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("CoursePortalContentsSummary.aspx"); } catch (Exception ignored) {}
+                try { fetchAndCacheHtml("CoursePortalPendingAssignments.aspx"); } catch (Exception ignored) {}
+                try {
+                    syncCourseSpecificData();
+                } catch (Exception ignored) {}
+                
+                // Pre-download COMSATS logo for PDF exports
+                try {
+                    byte[] logoBytes = portalRepository.fetchPhotoBytes("https://sis.cuiatd.edu.pk/resources/images/CIITLogo_Plain.png");
+                    if (logoBytes != null && logoBytes.length > 0) {
+                        java.nio.file.Files.write(java.nio.file.Path.of(com.assignly.util.AppDirectoryHelper.getAppDataDir(), "cui_logo.png"), logoBytes);
+                    }
+                } catch (Exception ignored) {}
+                
+                // Fetch profile picture if not already fetched
+                String photoUrl = portalRepository.getCurrentStudentPhotoUrl();
+                if (photoUrl != null && !photoUrl.isBlank()) {
+                    byte[] photoBytes = portalRepository.fetchPhotoBytes(photoUrl);
+                    if (photoBytes != null && photoBytes.length > 0) {
+                        Platform.runLater(() -> {
+                            if (sidebarAvatar != null) {
+                                Image img = new Image(new ByteArrayInputStream(photoBytes));
+                                double iw = img.getWidth();
+                                double ih = img.getHeight();
+                                if (iw > 0 && ih > 0) {
+                                    double s = Math.min(iw, ih);
+                                    double x = (iw - s) / 2;
+                                    double y = (ih - s) / 2;
+                                    sidebarAvatar.setViewport(new javafx.geometry.Rectangle2D(x, y, s, s));
+                                }
+                                sidebarAvatar.setFitWidth(30);
+                                sidebarAvatar.setFitHeight(30);
+                                sidebarAvatar.setPreserveRatio(false);
+                                sidebarAvatar.setImage(img);
+                            }
+                        });
                     }
                 }
-            } catch (Exception ignored) {}
-            fetchAndCacheHtml("CoursePortal.aspx");
-            fetchAndCacheHtml("Timetable.aspx");
-            fetchAndCacheHtml("FeeChallans.aspx");
-            fetchAndCacheHtml("FeeHistorySFMS.aspx");
-            fetchAndCacheHtml("StudentResultCard.aspx");
-            fetchAndCacheHtml("DateSheet.aspx");
-            fetchAndCacheHtml("Summary.aspx");
-            fetchAndCacheHtml("classproceedings.aspx");
-            fetchAndCacheHtml("QAMarks.aspx");
-            fetchAndCacheHtml("EntryCouponSelect.aspx");
-            fetchAndCacheHtml("EntryCouponWithQR.aspx");
-            fetchAndCacheHtml("AddCellEmailInfo.aspx");
-            fetchAndCacheHtml("LoginHistory.aspx");
-            fetchAndCacheHtml("scholarship/ViewScholarshipStatuse.aspx");
-            fetchAndCacheHtml("CTS/CTSdashboard.aspx");
-            fetchAndCacheHtml("CoursePortal.aspx?isTest=1");
-            fetchAndCacheHtml("CoursePortalContentsSummary.aspx");
-            fetchAndCacheHtml("CoursePortalPendingAssignments.aspx");
-            try {
-                syncCourseSpecificData();
-            } catch (Exception ignored) {}
-            
-            // Pre-download COMSATS logo for PDF exports
-            try {
-                byte[] logoBytes = portalRepository.fetchPhotoBytes("https://sis.cuiatd.edu.pk/resources/images/CIITLogo_Plain.png");
-                if (logoBytes != null && logoBytes.length > 0) {
-                    java.nio.file.Files.write(java.nio.file.Path.of(com.assignly.util.AppDirectoryHelper.getAppDataDir(), "cui_logo.png"), logoBytes);
-                }
-            } catch (Exception ignored) {}
-            
-            // Fetch profile picture if not already fetched
-            String photoUrl = portalRepository.getCurrentStudentPhotoUrl();
-            if (photoUrl != null && !photoUrl.isBlank()) {
-                byte[] photoBytes = portalRepository.fetchPhotoBytes(photoUrl);
-                if (photoBytes != null && photoBytes.length > 0) {
-                    Platform.runLater(() -> {
-                        if (sidebarAvatar != null) {
-                            Image img = new Image(new ByteArrayInputStream(photoBytes));
-                            double iw = img.getWidth();
-                            double ih = img.getHeight();
-                            if (iw > 0 && ih > 0) {
-                                double s = Math.min(iw, ih);
-                                double x = (iw - s) / 2;
-                                double y = (ih - s) / 2;
-                                sidebarAvatar.setViewport(new javafx.geometry.Rectangle2D(x, y, s, s));
-                            }
-                            sidebarAvatar.setFitWidth(30);
-                            sidebarAvatar.setFitHeight(30);
-                            sidebarAvatar.setPreserveRatio(false);
-                            sidebarAvatar.setImage(img);
-                        }
-                    });
-                }
-            }
 
-            notificationService.showInfo("Background sync complete");
-            Platform.runLater(this::refreshSearchItems);
-        }).start();
+                // Re-enable session expired callback after pre-fetch completes
+                portalRepository.setSuppressSessionExpiredCallback(false);
+
+                notificationService.showInfo("Background sync complete");
+                Platform.runLater(this::refreshSearchItems);
+            }).start();
+        }
     }
 
     public void updateSidebarProfile(String name, String program) {
@@ -1551,6 +1901,22 @@ public class AppContext {
     }
 
     public void syncPortalData() {
+        if (portalRepository.isOfflineMode()) {
+            Optional<com.assignly.model.User> storedUser = credentialManager.getStoredUser();
+            if (storedUser.isPresent()) {
+                String reg = storedUser.get().getRegistrationNo();
+                Optional<String> passOpt = credentialManager.getDecryptedPassword(storedUser.get());
+                if (passOpt.isPresent()) {
+                    Platform.runLater(() -> {
+                        showCaptchaDialog(null, reg, passOpt.get(), true);
+                    });
+                    return;
+                }
+            }
+            showLoginScreen();
+            return;
+        }
+
         if (isSyncing) return;
         isSyncing = true;
         
@@ -1587,6 +1953,9 @@ public class AppContext {
 
             int total = urlsToSync.length;
             for (int i = 0; i < total; i++) {
+                if (sessionRegistration == null || portalRepository.isOfflineMode()) {
+                    break;
+                }
                 final int currentProgress = (int) (((double) (i + 1) / total) * 100);
                 String url = urlsToSync[i];
                 try {
@@ -1852,6 +2221,7 @@ public class AppContext {
         notificationService.initToastLayer(root);
 
         Scene scene = new Scene(root, width, height);
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
         URL css = getClass().getResource("/com/assignly/styles/app.css");
         if (css != null) scene.getStylesheets().add(css.toExternalForm());
         
@@ -1860,8 +2230,6 @@ public class AppContext {
 
         stage.setTitle(title);
         stage.setScene(scene);
-
-        ResizeHelper.addResizeListener(stage);
     }
 
     private HBox buildCustomTitleBar() {
@@ -1968,7 +2336,7 @@ public class AppContext {
             maxBtn.setOpacity(newVal ? 0.3 : 1.0);
         });
 
-        // Update Maximize/Restore icon based on stage state
+        // Update Maximize/Restore icon based on native stage state
         stage.maximizedProperty().addListener((obs, oldVal, newVal) -> {
             if (newVal) {
                 maxIcon.setText("🗗");
@@ -2012,30 +2380,6 @@ public class AppContext {
 
         // Assembly
         titleBar.getChildren().addAll(brandingBox, dragSpacer, minBtn, maxBtn, closeBtn);
-
-        // Draggable window handlers
-        final double[] xOffset = new double[1];
-        final double[] yOffset = new double[1];
-
-        titleBar.setOnMousePressed(event -> {
-            xOffset[0] = event.getSceneX();
-            yOffset[0] = event.getSceneY();
-        });
-
-        titleBar.setOnMouseDragged(event -> {
-            if (!stage.isMaximized() || (stage.getMinWidth() == stage.getMaxWidth())) {
-                stage.setX(event.getScreenX() - xOffset[0]);
-                stage.setY(event.getScreenY() - yOffset[0]);
-            }
-        });
-
-        titleBar.setOnMouseClicked(event -> {
-            if (event.getClickCount() == 2) {
-                if (stage.isResizable() && stage.getMinWidth() != stage.getMaxWidth()) {
-                    stage.setMaximized(!stage.isMaximized());
-                }
-            }
-        });
 
         return titleBar;
     }
@@ -2138,6 +2482,8 @@ public class AppContext {
     public void clearSessionCredentials() {
         this.sessionRegistration = null;
         this.sessionPassword = null;
+        this.isMainAppShowing = false;
+        this.portalRepository.setOfflineMode(false);
         if (this.dataCacheService != null) {
             try {
                 this.dataCacheService.clearAllCaches();

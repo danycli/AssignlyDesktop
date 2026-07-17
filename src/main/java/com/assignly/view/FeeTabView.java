@@ -1383,7 +1383,7 @@ public class FeeTabView {
     private void generateAndSavePdf(String htmlContent, Button sourceBtn) {
         WebView hiddenWebView = new WebView();
         WebEngine engine = hiddenWebView.getEngine();
-        engine.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        engine.setUserAgent(com.assignly.service.PortalRepository.USER_AGENT);
 
         engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
             if (newState == Worker.State.SUCCEEDED) {

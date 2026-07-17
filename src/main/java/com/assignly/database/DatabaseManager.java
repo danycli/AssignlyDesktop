@@ -85,6 +85,18 @@ public class DatabaseManager {
                 )
                 """);
             statement.executeUpdate("""
+                CREATE TABLE IF NOT EXISTS session_cookies (
+                    name TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    secure INTEGER NOT NULL,
+                    http_only INTEGER NOT NULL,
+                    PRIMARY KEY (name, domain, path)
+                )
+                """);
+            statement.executeUpdate("""
                 INSERT INTO preferences (id, theme, auto_login, notifications_enabled, zoom_level, dark_overlay)
                 VALUES (1, 'LIGHT', 1, 1, 1.0, 0)
                 ON CONFLICT(id) DO NOTHING

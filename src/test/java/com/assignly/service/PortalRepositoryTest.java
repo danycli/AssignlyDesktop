@@ -285,5 +285,71 @@ public class PortalRepositoryTest {
         assertEquals("CSC211", list.get(0).code);
         assertEquals("Data Structures", list.get(0).title);
     }
+
+    @Test
+    public void testCookiePersistence() throws Exception {
+        java.nio.file.Path tempDb = java.nio.file.Files.createTempFile("test-assignly", ".db");
+        String jdbcUrl = "jdbc:sqlite:" + tempDb.toAbsolutePath().toString().replace("\\", "/");
+        
+        try {
+            com.assignly.database.DatabaseManager dbManager = new com.assignly.database.DatabaseManager(jdbcUrl);
+            dbManager.initializeSchema();
+            PortalRepository repo = new PortalRepository(dbManager);
+            
+            okhttp3.Cookie cookie = new okhttp3.Cookie.Builder()
+                    .name("testSession")
+                    .value("secureSecretTokenValue")
+                    .domain("sis.cuiatd.edu.pk")
+                    .path("/")
+                    .expiresAt(System.currentTimeMillis() + 100000)
+                    .build();
+            repo.addCookie("sis.cuiatd.edu.pk", cookie);
+            
+            repo.saveSessionCookies();
+            
+            PortalRepository newRepo = new PortalRepository(dbManager);
+            newRepo.loadSessionCookies();
+            
+            List<okhttp3.Cookie> cookies = newRepo.getCookiesForTest("sis.cuiatd.edu.pk");
+            assertEquals(1, cookies.size());
+            assertEquals("testSession", cookies.get(0).name());
+            assertEquals("secureSecretTokenValue", cookies.get(0).value());
+            assertEquals("sis.cuiatd.edu.pk", cookies.get(0).domain());
+            assertEquals("/", cookies.get(0).path());
+            
+            // Test clearing cookies
+            newRepo.clearSessionState();
+            List<okhttp3.Cookie> clearedCookies = newRepo.getCookiesForTest("sis.cuiatd.edu.pk");
+            assertEquals(0, clearedCookies.size());
+            
+            // Verify from database that it's deleted
+            PortalRepository repo3 = new PortalRepository(dbManager);
+            repo3.loadSessionCookies();
+            assertEquals(0, repo3.getCookiesForTest("sis.cuiatd.edu.pk").size());
+        } finally {
+            java.nio.file.Files.deleteIfExists(tempDb);
+        }
+    }
+
+    @Test
+    public void testOfflineModeShortCircuit() {
+        PortalRepository repo = new PortalRepository();
+        repo.setOfflineMode(true);
+        org.junit.jupiter.api.Assertions.assertTrue(repo.isOfflineMode());
+        
+        // fetchPageHtml should return null immediately without network calls
+        assertNull(repo.fetchPageHtml("Dashboard.aspx"));
+        
+        // fetchPhotoBytes should return null immediately
+        assertNull(repo.fetchPhotoBytes("http://example.com/logo.png"));
+        
+        // downloadFile should throw IOException
+        org.junit.jupiter.api.Assertions.assertThrows(java.io.IOException.class, () -> {
+            repo.downloadFile("test.pdf");
+        });
+        
+        repo.setOfflineMode(false);
+        org.junit.jupiter.api.Assertions.assertFalse(repo.isOfflineMode());
+    }
 }
 

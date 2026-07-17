@@ -56,7 +56,7 @@ public class WebPortalTabView {
         // WebView
         WebView webView = new WebView();
         WebEngine engine = webView.getEngine();
-        engine.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        engine.setUserAgent(com.assignly.service.PortalRepository.USER_AGENT);
 
         UserPreferences prefs = context.preferencesService().loadPreferences();
         webView.setZoom(prefs.getZoomLevel());
@@ -65,8 +65,14 @@ public class WebPortalTabView {
 
         engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
             if (newState == Worker.State.SUCCEEDED) {
-                UserPreferences currentPrefs = context.preferencesService().loadPreferences();
-                context.portalService().applyDarkOverlay(engine, currentPrefs.isDarkOverlay());
+                String loc = engine.getLocation() != null ? engine.getLocation().toLowerCase() : "";
+                String pageTitle = engine.getTitle() != null ? engine.getTitle().toLowerCase() : "";
+                
+                // Strict conditional protective guard: completely skip running scripts or styles on Cloudflare routing pages
+                if (!loc.contains("cdn-cgi") && !pageTitle.contains("just a moment")) {
+                    UserPreferences currentPrefs = context.preferencesService().loadPreferences();
+                    context.portalService().applyDarkOverlay(engine, currentPrefs.isDarkOverlay());
+                }
             }
         });
 

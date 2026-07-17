@@ -466,7 +466,7 @@ public class ExamCouponTabView {
         // Initialize WebView asynchronously after the UI rendering to prevent tab-switching lag
         Platform.runLater(() -> {
             try {
-                webView.getEngine().setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                webView.getEngine().setUserAgent(com.assignly.service.PortalRepository.USER_AGENT);
                 webView.getEngine().getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
                     if (newState == Worker.State.SUCCEEDED) {
                         webView.getEngine().executeScript(
