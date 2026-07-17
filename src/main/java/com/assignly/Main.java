@@ -16,6 +16,7 @@ public class Main extends Application {
     public void start(Stage stage) {
         DatabaseManager databaseManager = new DatabaseManager(com.assignly.util.AppDirectoryHelper.getDatabaseUrl());
         databaseManager.initializeSchema();
+        com.assignly.util.AnalyticsManager.initialize();
 
         context = new AppContext(
             stage,
